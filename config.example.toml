@@ -1,0 +1,51 @@
+# kindle-email configuration
+# Copy to config.toml and fill in your values.
+# IMPORTANT: chmod 600 config.toml — keep this file private, never commit it.
+#
+# Passwords can go directly in this file (recommended for local use), or be
+# provided via environment variables to avoid storing them on disk at all:
+#   KINDLE_EMAIL_IMAP_PASSWORD
+#   KINDLE_EMAIL_SMTP_PASSWORD
+# Note: setting them on the command line (VAR=x cmd) leaks to shell history —
+# use a .env file sourced with `set -a; source .env; set +a` if you prefer
+# env vars over the config file.
+
+[imap]
+host = "imap.gmail.com"
+port = 993
+username = "you@gmail.com"
+password = "your-gmail-app-password"
+
+[smtp]
+host = "smtp.gmail.com"
+port = 587
+username = "you@gmail.com"
+password = "your-gmail-app-password"
+
+[kindle]
+# Your Kindle's personal email address (Settings > Your Account > Send-to-Kindle Email)
+address = "your_name@kindle.com"
+# The address you send FROM — must be in your Kindle's Approved Personal Document Email List
+from_address = "you@gmail.com"
+
+[labels]
+# Gmail label to watch for incoming newsletters
+watch = "SendToKindle"
+# Emails are moved here after successful delivery
+processed = "SendToKindle/Processed"
+# Emails are moved here if processing fails
+failed = "SendToKindle/Failed"
+
+[schedule]
+# How often to check for new emails (seconds). 300 = every 5 minutes.
+poll_interval_seconds = 300
+
+[processing]
+# Maximum image file size to download (KB)
+max_image_size_kb = 500
+# Maximum number of images per email
+max_images_per_email = 20
+# Set to false to skip all external images (faster, no network calls)
+download_external_images = true
+# Timeout for downloading each external image (seconds)
+image_timeout_seconds = 10

@@ -1,0 +1,18 @@
+MIME-Version: 1.0
+Date: Thu, 1 Jan 2026 14:00:00 +0000
+From: Attacker <attacker@evil.com>
+To: reader@gmail.com
+Subject: SSRF Test Email
+Content-Type: text/html; charset="utf-8"
+
+<html>
+<body>
+<h1>Article with Malicious Images</h1>
+<p>This email tries to probe internal services.</p>
+<img src="http://169.254.169.254/latest/meta-data/" alt="cloud metadata" />
+<img src="http://localhost/admin" alt="localhost" />
+<img src="http://192.168.1.1/config" alt="router" />
+<img src="http://10.0.0.1/internal" alt="internal" />
+<p>End of article.</p>
+</body>
+</html>

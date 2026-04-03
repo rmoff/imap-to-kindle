@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "kindle-email"
+version = "0.1.0"
+description = "Watch a Gmail label, convert forwarded newsletters to EPUB, send to Kindle"
+requires-python = ">=3.11"
+dependencies = [
+    "readability-lxml==0.8.1",
+    "beautifulsoup4==4.12.3",
+    "lxml==5.3.0",
+    "lxml_html_clean==0.4.1",
+    "ebooklib==0.18",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==8.3.4",
+    "pytest-cov==6.0.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

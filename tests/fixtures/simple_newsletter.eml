@@ -1,0 +1,20 @@
+MIME-Version: 1.0
+Date: Thu, 1 Jan 2026 10:00:00 +0000
+From: Newsletter Author <author@example.com>
+To: reader@gmail.com
+Subject: My Weekly Newsletter #42
+Content-Type: text/html; charset="utf-8"
+
+<html>
+<body>
+<h1>This Week in Tech</h1>
+<p>Welcome to this week's edition of the newsletter.</p>
+<p>Here is some <strong>important</strong> content you should read.</p>
+<h2>Section Two</h2>
+<p>More interesting content about the world of technology.</p>
+<p>
+  <a href="https://example.com/unsubscribe">Unsubscribe</a> from this newsletter.
+</p>
+<img src="https://tracker.example.com/pixel.gif" width="1" height="1" />
+</body>
+</html>

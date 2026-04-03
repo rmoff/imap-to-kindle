@@ -1,0 +1,7 @@
+config.toml
+*.pyc
+__pycache__/
+*.egg-info/
+dist/
+.env
+.claude/
