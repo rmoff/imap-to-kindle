@@ -69,6 +69,8 @@ def generate(content: CleanedContent) -> tuple[str, bytes]:
     book.set_identifier(str(uuid.uuid4()))
     book.set_title(content.title)
     book.set_language("en")
+    if content.author:
+        book.add_author(content.author)
 
     # Add CSS
     css = epub.EpubItem(
@@ -107,17 +109,19 @@ def generate(content: CleanedContent) -> tuple[str, bytes]:
 </body>
 </html>"""
 
-    chapter = epub.EpubHtml(
+    document = epub.EpubHtml(
         title=content.title,
-        file_name="chapter.xhtml",
+        file_name="document.xhtml",
         lang="en",
         content=chapter_html.encode(),
     )
-    chapter.add_item(css)
-    book.add_item(chapter)
+    document.add_item(css)
+    book.add_item(document)
 
-    book.toc = [epub.Link("chapter.xhtml", content.title, "chapter")]
-    book.spine = ["nav", chapter]
+    # Open directly to the document; the nav is included for navigation but
+    # is not the landing page.
+    book.toc = [epub.Link("document.xhtml", content.title, "document")]
+    book.spine = [document]
     book.add_item(epub.EpubNcx())
     book.add_item(epub.EpubNav())
 

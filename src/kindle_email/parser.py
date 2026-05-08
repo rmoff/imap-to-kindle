@@ -22,6 +22,8 @@ class ParsedEmail:
     inline_images: dict[str, bytes] = field(default_factory=dict)
     # MIME type of each inline image, keyed by the same Content-ID
     inline_image_types: dict[str, str] = field(default_factory=dict)
+    # First PDF attachment found, if any: (filename, bytes)
+    pdf_attachment: tuple[str, bytes] | None = None
 
 
 def _decode_header_value(value: str | None) -> str:
@@ -67,8 +69,10 @@ def parse(raw: bytes) -> ParsedEmail:
     inline_images: dict[str, bytes] = {}
     inline_image_types: dict[str, str] = {}
 
+    pdf_attachment: tuple[str, bytes] | None = None
+
     if msg.is_multipart():
-        html_body, inline_images, inline_image_types = _extract_multipart(msg)
+        html_body, inline_images, inline_image_types, pdf_attachment = _extract_multipart(msg)
     else:
         content_type = msg.get_content_type()
         if content_type == "text/html":
@@ -76,7 +80,7 @@ def parse(raw: bytes) -> ParsedEmail:
         elif content_type == "text/plain":
             html_body = f"<pre>{_decode_payload(msg)}</pre>"
 
-    if not html_body:
+    if not html_body and not pdf_attachment:
         log.warning("No usable content found in email: %s", subject)
 
     return ParsedEmail(
@@ -86,23 +90,26 @@ def parse(raw: bytes) -> ParsedEmail:
         html_body=html_body,
         inline_images=inline_images,
         inline_image_types=inline_image_types,
+        pdf_attachment=pdf_attachment,
     )
 
 
 def _extract_multipart(
     msg: email.message.Message,
-) -> tuple[str, dict[str, bytes], dict[str, str]]:
+) -> tuple[str, dict[str, bytes], dict[str, str], tuple[str, bytes] | None]:
     """
     Walk a multipart message to find:
     - The best HTML body (from text/html or multipart/alternative)
     - Inline images from multipart/related
+    - The first PDF attachment, if any
 
-    Returns (html_body, inline_images, inline_image_types).
+    Returns (html_body, inline_images, inline_image_types, pdf_attachment).
     """
     html_body = ""
     plain_body = ""
     inline_images: dict[str, bytes] = {}
     inline_image_types: dict[str, str] = {}
+    pdf_attachment: tuple[str, bytes] | None = None
 
     for part in msg.walk():
         content_type = part.get_content_type()
@@ -127,7 +134,13 @@ def _extract_multipart(
                     inline_images[cid] = payload
                     inline_image_types[cid] = content_type
 
+        elif content_type == "application/pdf" and pdf_attachment is None:
+            payload = part.get_payload(decode=True)
+            if isinstance(payload, bytes):
+                filename = _decode_header_value(part.get_filename()) or "document.pdf"
+                pdf_attachment = (filename, payload)
+
     if not html_body and plain_body:
         html_body = f"<pre>{plain_body}</pre>"
 
-    return html_body, inline_images, inline_image_types
+    return html_body, inline_images, inline_image_types, pdf_attachment

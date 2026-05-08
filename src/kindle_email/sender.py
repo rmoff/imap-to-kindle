@@ -1,4 +1,4 @@
-"""Send an EPUB file to a Kindle email address via SMTP."""
+"""Send a file (EPUB or PDF) to a Kindle email address via SMTP."""
 
 from __future__ import annotations
 
@@ -14,28 +14,27 @@ from .config import Config
 log = logging.getLogger(__name__)
 
 
-def send(epub_filename: str, epub_bytes: bytes, config: Config) -> bool:
+def send(filename: str, data: bytes, config: Config) -> bool:
     """
-    Send an EPUB as an email attachment to the configured Kindle address.
+    Send a file as an email attachment to the configured Kindle address.
     Returns True on success, False on failure.
 
     Amazon's Send-to-Kindle service requires:
     - The sender must be in the Kindle's approved senders list
-    - Attachment must be a supported format (EPUB is supported as of 2024)
-    - The subject line is ignored; the book title comes from the EPUB metadata
+    - Attachment must be a supported format (EPUB and PDF are both supported)
     """
     max_retries = 3
     for attempt in range(1, max_retries + 1):
         try:
-            _send_once(epub_filename, epub_bytes, config)
-            log.info("Sent '%s' to %s", epub_filename, config.kindle.address)
+            _send_once(filename, data, config)
+            log.info("Sent '%s' to %s", filename, config.kindle.address)
             return True
         except smtplib.SMTPAuthenticationError as e:
             log.error("SMTP authentication failed: %s", e)
             return False  # No point retrying auth failures
         except (smtplib.SMTPException, OSError) as e:
             if attempt == max_retries:
-                log.error("Failed to send '%s' after %d attempts: %s", epub_filename, max_retries, e)
+                log.error("Failed to send '%s' after %d attempts: %s", filename, max_retries, e)
                 return False
             wait = 2 ** attempt
             log.warning("SMTP error (attempt %d/%d): %s — retrying in %ds", attempt, max_retries, e, wait)
@@ -43,7 +42,7 @@ def send(epub_filename: str, epub_bytes: bytes, config: Config) -> bool:
     return False
 
 
-def _send_once(epub_filename: str, epub_bytes: bytes, config: Config) -> None:
+def _send_once(filename: str, data: bytes, config: Config) -> None:
     msg = email.mime.multipart.MIMEMultipart()
     msg["From"] = config.kindle.from_address
     msg["To"] = config.kindle.address
@@ -53,10 +52,10 @@ def _send_once(epub_filename: str, epub_bytes: bytes, config: Config) -> None:
     msg.attach(email.mime.text.MIMEText("Delivered by kindle-email.", "plain"))
 
     # Strip quotes and newlines from filename to prevent header injection
-    safe_name = epub_filename.replace('"', "").replace("\r", "").replace("\n", "")
+    safe_name = filename.replace('"', "").replace("\r", "").replace("\n", "")
 
     attachment = email.mime.application.MIMEApplication(
-        epub_bytes,
+        data,
         Name=safe_name,
     )
     attachment["Content-Disposition"] = f'attachment; filename="{safe_name}"'

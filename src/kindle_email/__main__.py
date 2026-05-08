@@ -8,8 +8,9 @@ import sys
 import time
 
 from . import config as cfg
+from . import raindrop_fetcher
 from .fetcher import fetch_and_process
-from .pipeline import process_email
+from .pipeline import process_email, process_raindrop
 
 
 def main() -> None:
@@ -48,25 +49,39 @@ def main() -> None:
     )
     log = logging.getLogger(__name__)
 
-    if args.once:
-        log.info("Running single pass")
-        count = fetch_and_process(config, lambda raw: process_email(raw, config))
-        log.info("Processed %d email(s)", count)
-        return
-
-    log.info(
-        "Starting poll loop (interval: %ds, watching label: %s)",
-        config.schedule.poll_interval_seconds,
-        config.labels.watch,
-    )
-    while True:
+    def drain_sources() -> None:
         try:
             count = fetch_and_process(config, lambda raw: process_email(raw, config))
             if count:
                 log.info("Processed %d email(s)", count)
         except Exception as e:
-            log.error("Poll loop error: %s", e)
+            log.error("IMAP poll error: %s", e)
 
+        if config.raindrop is not None:
+            try:
+                count = raindrop_fetcher.fetch_and_process(
+                    config, lambda r: process_raindrop(r, config)
+                )
+                if count:
+                    log.info("Processed %d raindrop(s)", count)
+            except Exception as e:
+                log.error("Raindrop poll error: %s", e)
+
+    if args.once:
+        log.info("Running single pass")
+        drain_sources()
+        return
+
+    sources = ["IMAP label " + config.labels.watch]
+    if config.raindrop is not None:
+        sources.append(f"Raindrop tag #{config.raindrop.source_tag}")
+    log.info(
+        "Starting poll loop (interval: %ds, sources: %s)",
+        config.schedule.poll_interval_seconds,
+        ", ".join(sources),
+    )
+    while True:
+        drain_sources()
         time.sleep(config.schedule.poll_interval_seconds)
 
 

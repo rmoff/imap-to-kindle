@@ -1,8 +1,11 @@
 # imap-to-kindle
 
-A self-hosted Python app that watches an IMAP folder and delivers newsletters to your Kindle.
+A self-hosted Python app that delivers newsletters and web pages to your Kindle.
 
-Forward a newsletter to yourself, move it to a watched folder, and it appears on your Kindle as a clean, readable EPUB within minutes — no ads, no tracking pixels, no unsubscribe footers.
+Two ways in:
+
+- **Forward a newsletter** to yourself and move it to a watched IMAP folder. It appears on your Kindle as a clean, readable EPUB within minutes — no ads, no tracking pixels, no unsubscribe footers.
+- **Tag a Raindrop.io bookmark `#sendtokindle`** and the app fetches the page, cleans it, and delivers it — handy for the mobile share sheet.
 
 Inspired by [readbetter.io](https://readbetter.io/), built to run on your own infrastructure.
 
@@ -105,8 +108,32 @@ python -m kindle_email --once
 | `processing.max_images_per_email` | `20` | Max images per email |
 | `processing.download_external_images` | `true` | Download images from external URLs |
 | `processing.image_timeout_seconds` | `10` | Timeout per image download |
+| `raindrop.enabled` | `false` | Turn on Raindrop polling |
+| `raindrop.token` | | Raindrop test token (or `KINDLE_EMAIL_RAINDROP_TOKEN` env var) |
+| `raindrop.source_tag` | `sendtokindle` | Tag that marks a bookmark for delivery |
+| `raindrop.processed_tag` | `sendtokindle_processed` | Tag applied after successful delivery |
+| `raindrop.failed_tag` | `sendtokindle_failed` | Tag applied when delivery fails |
 
-Passwords can alternatively be set via environment variables `KINDLE_EMAIL_IMAP_PASSWORD` and `KINDLE_EMAIL_SMTP_PASSWORD` (useful for Docker). Do **not** pass them on the command line — that leaks to shell history.
+Passwords/tokens can alternatively be set via environment variables `KINDLE_EMAIL_IMAP_PASSWORD`, `KINDLE_EMAIL_SMTP_PASSWORD`, and `KINDLE_EMAIL_RAINDROP_TOKEN` (useful for Docker). Do **not** pass them on the command line — that leaks to shell history.
+
+---
+
+## Raindrop mode
+
+Tag any [Raindrop.io](https://raindrop.io) bookmark `#sendtokindle` and the app will fetch the page, clean it, and send it to your Kindle on the next poll. After delivery the tag is swapped to `#sendtokindle_processed` (or `#sendtokindle_failed` on failure) so nothing gets re-sent. Your other tags are preserved.
+
+### Setup
+
+1. Create a test token at https://app.raindrop.io/settings/integrations.
+2. Add a `[raindrop]` section to `config.toml` (see `config.example.toml`):
+
+```toml
+[raindrop]
+enabled = true
+token = "your-token"
+```
+
+3. On your phone: share a URL to Raindrop and add the `sendtokindle` tag. Next poll it lands on your Kindle.
 
 ---
 
@@ -114,14 +141,16 @@ Passwords can alternatively be set via environment variables `KINDLE_EMAIL_IMAP_
 
 ```
 src/kindle_email/
-├── __main__.py   # Entry point
-├── config.py     # Config loading
-├── fetcher.py    # IMAP folder scanning
-├── parser.py     # MIME parsing
-├── cleaner.py    # Content extraction and cleanup
-├── epub.py       # EPUB generation
-├── sender.py     # SMTP delivery
-└── pipeline.py   # Orchestration
+├── __main__.py          # Entry point
+├── config.py            # Config loading
+├── fetcher.py           # IMAP folder scanning
+├── raindrop_fetcher.py  # Raindrop.io API client
+├── parser.py            # MIME parsing
+├── cleaner.py           # Content extraction and cleanup
+├── url_fetcher.py       # Fetch a URL and render it as cleaned HTML
+├── epub.py              # EPUB generation
+├── sender.py            # SMTP delivery
+└── pipeline.py          # Orchestration
 ```
 
 ---

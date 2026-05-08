@@ -38,6 +38,7 @@ _TRACKING_PIXEL_MAX_DIMENSION = 3  # px; images <= this in both dimensions are t
 class CleanedContent:
     title: str
     html: str
+    author: str = ""
     # Mapping from a local filename (e.g. "img_abc123.jpg") to raw image bytes
     images: dict[str, bytes] = field(default_factory=dict)
     # MIME type for each image file
@@ -51,7 +52,11 @@ def clean(parsed: ParsedEmail, config: ProcessingConfig) -> CleanedContent:
     """
     html = parsed.html_body
     if not html:
-        return CleanedContent(title=parsed.subject, html="<p>No content.</p>")
+        return CleanedContent(
+            title=parsed.subject,
+            html="<p>No content.</p>",
+            author=_sender_display_name(parsed.sender),
+        )
 
     # Step 1: readability-lxml extraction
     try:
@@ -142,9 +147,24 @@ def clean(parsed: ParsedEmail, config: ProcessingConfig) -> CleanedContent:
     return CleanedContent(
         title=title,
         html=str(soup),
+        author=_sender_display_name(parsed.sender),
         images=images,
         image_types=image_types,
     )
+
+
+def _sender_display_name(sender_header: str) -> str:
+    """Extract a display name from a From header like 'Jane Doe <jane@example.com>'."""
+    from email.utils import parseaddr
+
+    name, addr = parseaddr(sender_header or "")
+    if name:
+        return name.strip()
+    if addr:
+        # Fall back to the local part of the address, prettified.
+        local = addr.split("@", 1)[0]
+        return local.replace(".", " ").replace("_", " ").strip() or addr
+    return ""
 
 
 # ---------------------------------------------------------------------------
@@ -235,7 +255,7 @@ def _sanitize_attributes(soup: BeautifulSoup) -> None:
 # Image download with SSRF protection
 # ---------------------------------------------------------------------------
 
-def _is_safe_url(url: str) -> bool:
+def is_safe_url(url: str) -> bool:
     """Return True only if the URL resolves to a globally-routable IP."""
     try:
         host = urllib.parse.urlparse(url).hostname
@@ -257,7 +277,7 @@ def _download_image(url: str, config: ProcessingConfig) -> tuple[bytes | None, s
     Download an external image. Returns (bytes, mime_type) or (None, "").
     Enforces SSRF protection and size limits via streaming.
     """
-    if not _is_safe_url(url):
+    if not is_safe_url(url):
         log.debug("Blocked image download (SSRF protection): %s", url)
         return None, ""
 

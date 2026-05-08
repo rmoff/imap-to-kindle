@@ -51,6 +51,19 @@ class ProcessingConfig:
 
 
 @dataclass
+class RaindropConfig:
+    token: str
+    source_tag: str = "sendtokindle"
+    processed_tag: str = "sendtokindle_processed"
+    failed_tag: str = "sendtokindle_failed"
+
+
+@dataclass
+class DiscordConfig:
+    webhook_url: str
+
+
+@dataclass
 class Config:
     imap: ImapConfig
     smtp: SmtpConfig
@@ -58,6 +71,8 @@ class Config:
     labels: LabelConfig
     schedule: ScheduleConfig
     processing: ProcessingConfig
+    raindrop: RaindropConfig | None = None
+    discord: DiscordConfig | None = None
 
 
 def load(path: str | Path = "config.toml") -> Config:
@@ -78,6 +93,32 @@ def load(path: str | Path = "config.toml") -> Config:
     labels = raw.get("labels", {})
     schedule = raw.get("schedule", {})
     processing = raw.get("processing", {})
+    raindrop_section = raw.get("raindrop")
+    discord_section = raw.get("discord")
+
+    discord_config: DiscordConfig | None = None
+    discord_webhook = os.environ.get("KINDLE_EMAIL_DISCORD_WEBHOOK") or (
+        (discord_section or {}).get("webhook_url", "")
+    )
+    if discord_webhook:
+        discord_config = DiscordConfig(webhook_url=discord_webhook)
+
+    raindrop_config: RaindropConfig | None = None
+    if raindrop_section and raindrop_section.get("enabled", False):
+        token = os.environ.get("KINDLE_EMAIL_RAINDROP_TOKEN") or raindrop_section.get("token", "")
+        if not token:
+            raise ValueError(
+                "Raindrop is enabled but no token set. Use KINDLE_EMAIL_RAINDROP_TOKEN env var or raindrop.token in config."
+            )
+        # Raindrop tag names are stored without a leading '#', so strip one if present.
+        def _tag(key: str, default: str) -> str:
+            return str(raindrop_section.get(key, default)).lstrip("#")
+        raindrop_config = RaindropConfig(
+            token=token,
+            source_tag=_tag("source_tag", "sendtokindle"),
+            processed_tag=_tag("processed_tag", "sendtokindle_processed"),
+            failed_tag=_tag("failed_tag", "sendtokindle_failed"),
+        )
 
     return Config(
         imap=ImapConfig(
@@ -110,4 +151,6 @@ def load(path: str | Path = "config.toml") -> Config:
             download_external_images=bool(processing.get("download_external_images", True)),
             image_timeout_seconds=int(processing.get("image_timeout_seconds", 10)),
         ),
+        raindrop=raindrop_config,
+        discord=discord_config,
     )

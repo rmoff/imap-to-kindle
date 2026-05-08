@@ -78,11 +78,11 @@ def test_ssrf_protection_blocks_private_ips():
 
 
 def test_ssrf_is_safe_url_blocks_known_bad():
-    assert cleaner._is_safe_url("http://169.254.169.254/latest/meta-data/") is False
-    assert cleaner._is_safe_url("http://localhost/admin") is False
-    assert cleaner._is_safe_url("http://192.168.1.1/config") is False
-    assert cleaner._is_safe_url("http://10.0.0.1/internal") is False
-    assert cleaner._is_safe_url("http://127.0.0.1/") is False
+    assert cleaner.is_safe_url("http://169.254.169.254/latest/meta-data/") is False
+    assert cleaner.is_safe_url("http://localhost/admin") is False
+    assert cleaner.is_safe_url("http://192.168.1.1/config") is False
+    assert cleaner.is_safe_url("http://10.0.0.1/internal") is False
+    assert cleaner.is_safe_url("http://127.0.0.1/") is False
 
 
 def test_disable_external_images():

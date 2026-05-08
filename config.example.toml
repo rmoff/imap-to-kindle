@@ -2,10 +2,11 @@
 # Copy to config.toml and fill in your values.
 # IMPORTANT: chmod 600 config.toml — keep this file private, never commit it.
 #
-# Passwords can go directly in this file (recommended for local use), or be
-# provided via environment variables to avoid storing them on disk at all:
+# Passwords / tokens can go directly in this file (recommended for local use),
+# or be provided via environment variables to avoid storing them on disk at all:
 #   KINDLE_EMAIL_IMAP_PASSWORD
 #   KINDLE_EMAIL_SMTP_PASSWORD
+#   KINDLE_EMAIL_RAINDROP_TOKEN
 # Note: setting them on the command line (VAR=x cmd) leaks to shell history —
 # use a .env file sourced with `set -a; source .env; set +a` if you prefer
 # env vars over the config file.
@@ -49,3 +50,14 @@ max_images_per_email = 20
 download_external_images = true
 # Timeout for downloading each external image (seconds)
 image_timeout_seconds = 10
+
+# Optional: drain Raindrop.io bookmarks tagged for Kindle on each poll.
+# Tag a bookmark #sendtokindle and the app will fetch, deliver, and retag it
+# as #sendtokindle_processed (or #sendtokindle_failed on failure).
+# Get a test token at https://app.raindrop.io/settings/integrations.
+# [raindrop]
+# enabled = true
+# token = "your-raindrop-test-token"
+# source_tag = "sendtokindle"                # optional; default shown
+# processed_tag = "sendtokindle_processed"   # optional; default shown
+# failed_tag = "sendtokindle_failed"         # optional; default shown
