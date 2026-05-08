@@ -19,7 +19,11 @@ def _post(webhook_url: str, content: str) -> None:
     req = urllib.request.Request(
         webhook_url,
         data=body,
-        headers={"Content-Type": "application/json"},
+        headers={
+            "Content-Type": "application/json",
+            # Discord rejects the default `Python-urllib/X.Y` UA with 403.
+            "User-Agent": "kindle-email/1.0 (+https://github.com/rmoff/imap-to-kindle)",
+        },
         method="POST",
     )
     try:
