@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import patch
 
 from kindle_email import url_fetcher
 from kindle_email.config import ProcessingConfig
+
+_FIXTURES = Path(__file__).parent / "fixtures"
 
 
 def _config(**overrides) -> ProcessingConfig:
@@ -19,14 +22,24 @@ def _config(**overrides) -> ProcessingConfig:
     return ProcessingConfig(**defaults)
 
 
+def _article_body(marker: str) -> str:
+    """A body with enough real text to clear the substantive-article threshold."""
+    return (
+        f"<article><p>{marker} "
+        + "This is genuine article prose that goes on for several sentences so "
+        "that the extractor sees a real post rather than a redirect stub. " * 3
+        + "</p></article>"
+    )
+
+
 def test_build_cleaned_content_merges_pages():
     page1 = (
         "<html><head><title>Page One</title></head>"
-        "<body><article><p>Article one content here.</p></article></body></html>"
+        f"<body>{_article_body('Article one content here.')}</body></html>"
     )
     page2 = (
         "<html><head><title>Page Two</title></head>"
-        "<body><article><p>Article two content here.</p></article></body></html>"
+        f"<body>{_article_body('Article two content here.')}</body></html>"
     )
 
     with patch.object(url_fetcher, "fetch_page", side_effect=[page1, page2]):
@@ -46,7 +59,7 @@ def test_build_cleaned_content_merges_pages():
 def test_build_cleaned_content_single_url_uses_page_title():
     page = (
         "<html><head><title>Just One</title></head>"
-        "<body><article><p>Some text.</p></article></body></html>"
+        f"<body>{_article_body('Some text.')}</body></html>"
     )
     with patch.object(url_fetcher, "fetch_page", return_value=page):
         cleaned = url_fetcher.build_cleaned_content(["https://a.com/1"], _config())
@@ -64,7 +77,7 @@ def test_build_cleaned_content_skips_failed_url():
     """If one URL fails but another succeeds, deliver what we have."""
     page = (
         "<html><head><title>Survivor</title></head>"
-        "<body><article><p>Content.</p></article></body></html>"
+        f"<body>{_article_body('Content.')}</body></html>"
     )
     with patch.object(url_fetcher, "fetch_page", side_effect=[None, page]):
         cleaned = url_fetcher.build_cleaned_content(
@@ -72,6 +85,88 @@ def test_build_cleaned_content_skips_failed_url():
         )
     assert cleaned is not None
     assert "Survivor" in cleaned.html
+
+
+# A Substack-style redirect interstitial: the <title> is the destination URL
+# and the body is just a link — no article text. This is what Substack
+# intermittently serves for open.substack.com share links instead of the post.
+_INTERSTITIAL = (
+    "<html><head><title>"
+    "https://charitydotwtf.substack.com/p/ai-enthusiasts?triedRedirect=true"
+    "</title></head><body>"
+    '<a href="https://charitydotwtf.substack.com/p/ai-enthusiasts">'
+    "https://charitydotwtf.substack.com/p/ai-enthusiasts</a>"
+    "</body></html>"
+)
+
+_REAL_ARTICLE = (
+    "<html><head><title>AI enthusiasts are in a race against time</title></head>"
+    "<body><article>"
+    + "<p>Both sides are grappling with a real existential threat and screaming "
+    "into the void. Here is how to close the gap and get everyone pulling in the "
+    "same direction, paragraph after paragraph of genuine article prose.</p>" * 5
+    + "</article></body></html>"
+)
+
+
+def test_build_cleaned_content_rejects_thin_interstitial():
+    """A redirect stub with no article text must NOT be delivered as content.
+
+    Both the initial fetch and the retry return the stub, so there is no real
+    article to ship — build_cleaned_content should return None, which makes the
+    pipeline send a Discord failure notification instead of a bare-URL epub.
+    """
+    with patch.object(url_fetcher, "fetch_page", side_effect=[_INTERSTITIAL, _INTERSTITIAL]):
+        cleaned = url_fetcher.build_cleaned_content(
+            ["https://open.substack.com/pub/charitydotwtf/p/ai-enthusiasts"], _config()
+        )
+    assert cleaned is None
+
+
+def test_build_cleaned_content_retries_thin_then_succeeds():
+    """If the first fetch yields a thin stub, a refetch that returns the real
+    article should be used — this recovers Substack's intermittent interstitial."""
+    with patch.object(url_fetcher, "fetch_page", side_effect=[_INTERSTITIAL, _REAL_ARTICLE]):
+        cleaned = url_fetcher.build_cleaned_content(
+            ["https://open.substack.com/pub/charitydotwtf/p/ai-enthusiasts"], _config()
+        )
+    assert cleaned is not None
+    assert "existential threat" in cleaned.html
+    assert cleaned.title.startswith("AI enthusiasts")
+
+
+def test_resolve_client_redirect_reads_real_substack_stub():
+    """The captured Substack interstitial must yield its real-article target."""
+    stub = (_FIXTURES / "substack_interstitial.html").read_text()
+    target = url_fetcher._resolve_client_redirect(stub, "https://open.substack.com/x")
+    assert target is not None
+    assert target.startswith("https://charitydotwtf.substack.com/p/ai-enthusiasts")
+    assert "triedRedirect=true" in target
+
+
+def test_resolve_client_redirect_handles_js_location_replace():
+    html = '<html><head></head><body><script>location.replace("https://example.com/real")</script></body></html>'
+    assert url_fetcher._resolve_client_redirect(html, "https://a.com") == "https://example.com/real"
+
+
+def test_resolve_client_redirect_relative_meta_refresh():
+    html = '<meta http-equiv="refresh" content="0; url=/article/123">'
+    assert url_fetcher._resolve_client_redirect(html, "https://a.com/x") == "https://a.com/article/123"
+
+
+def test_resolve_client_redirect_none_for_real_article():
+    html = "<html><head><title>Real</title></head><body><article><p>Lots of text.</p></article></body></html>"
+    assert url_fetcher._resolve_client_redirect(html, "https://a.com") is None
+
+
+def test_fetch_page_follows_client_side_redirect():
+    """fetch_page must transparently follow a JS/meta interstitial to the article."""
+    stub = (_FIXTURES / "substack_interstitial.html").read_text()
+    article = "<html><head><title>AI enthusiasts</title></head><body><article><p>Real prose.</p></article></body></html>"
+    with patch.object(url_fetcher, "_direct_fetch", side_effect=[stub, article]), \
+         patch.object(url_fetcher, "is_safe_url", return_value=True):
+        result = url_fetcher.fetch_page("https://open.substack.com/pub/charitydotwtf/p/x")
+    assert result == article
 
 
 def test_fetch_page_blocks_ssrf():
