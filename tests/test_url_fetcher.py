@@ -173,3 +173,137 @@ def test_fetch_page_blocks_ssrf():
     """fetch_page must refuse private/loopback URLs before opening a socket."""
     assert url_fetcher.fetch_page("http://127.0.0.1/") is None
     assert url_fetcher.fetch_page("http://169.254.169.254/latest/meta-data/") is None
+
+
+# --- FlareSolverr fallback -------------------------------------------------
+# When both the direct fetch and r.jina.ai are blocked (Cloudflare bot-walls,
+# e.g. patreon.com), fetch_page falls back to a local FlareSolverr instance,
+# which solves the challenge in a real browser and returns the rendered DOM.
+
+import io
+import json
+
+
+class _FakeHttpResponse(io.BytesIO):
+    """Minimal stand-in for urlopen's response: bytes + context manager."""
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+def _flaresolverr_envelope(html="<html><body>solved</body></html>",
+                           status="ok", solution_status=200) -> bytes:
+    return json.dumps({
+        "status": status,
+        "message": "",
+        "solution": {"status": solution_status, "url": "https://a.com/x", "response": html},
+    }).encode()
+
+
+def test_fetch_page_falls_back_to_flaresolverr_when_jina_fails():
+    with patch.object(url_fetcher, "is_safe_url", return_value=True), \
+         patch.object(url_fetcher, "_direct_fetch", return_value=None), \
+         patch.object(url_fetcher, "_jina_fetch", return_value=None), \
+         patch.object(url_fetcher, "_flaresolverr_fetch", return_value="<html>via fs</html>") as fs:
+        result = url_fetcher.fetch_page(
+            "https://blocked.example/post", flaresolverr_url="http://fs:8191"
+        )
+    assert result == "<html>via fs</html>"
+    fs.assert_called_once_with("https://blocked.example/post", "http://fs:8191")
+
+
+def test_fetch_page_skips_flaresolverr_when_not_configured():
+    with patch.object(url_fetcher, "is_safe_url", return_value=True), \
+         patch.object(url_fetcher, "_direct_fetch", return_value=None), \
+         patch.object(url_fetcher, "_jina_fetch", return_value=None), \
+         patch.object(url_fetcher, "_flaresolverr_fetch") as fs:
+        result = url_fetcher.fetch_page("https://blocked.example/post")
+    assert result is None
+    fs.assert_not_called()
+
+
+def test_flaresolverr_fetch_returns_solution_html():
+    captured = {}
+
+    def fake_urlopen(req, timeout):
+        captured["url"] = req.full_url
+        captured["body"] = json.loads(req.data.decode())
+        captured["timeout"] = timeout
+        return _FakeHttpResponse(_flaresolverr_envelope("<html><body>rendered page</body></html>"))
+
+    with patch.object(url_fetcher.urllib.request, "urlopen", fake_urlopen):
+        result = url_fetcher._flaresolverr_fetch("https://a.com/x", "http://fs:8191")
+
+    assert result == "<html><body>rendered page</body></html>"
+    assert captured["url"] == "http://fs:8191/v1"
+    assert captured["body"]["cmd"] == "request.get"
+    assert captured["body"]["url"] == "https://a.com/x"
+
+
+def test_flaresolverr_fetch_none_when_solver_reports_error():
+    with patch.object(
+        url_fetcher.urllib.request, "urlopen",
+        lambda req, timeout: _FakeHttpResponse(
+            _flaresolverr_envelope(status="error")
+        ),
+    ):
+        assert url_fetcher._flaresolverr_fetch("https://a.com/x", "http://fs:8191") is None
+
+
+def test_flaresolverr_fetch_none_when_target_still_blocked():
+    with patch.object(
+        url_fetcher.urllib.request, "urlopen",
+        lambda req, timeout: _FakeHttpResponse(
+            _flaresolverr_envelope(solution_status=403)
+        ),
+    ):
+        assert url_fetcher._flaresolverr_fetch("https://a.com/x", "http://fs:8191") is None
+
+
+def test_flaresolverr_fetch_none_when_unreachable():
+    import urllib.error
+
+    def raise_urlerror(req, timeout):
+        raise urllib.error.URLError("connection refused")
+
+    with patch.object(url_fetcher.urllib.request, "urlopen", raise_urlerror):
+        assert url_fetcher._flaresolverr_fetch("https://a.com/x", "http://fs:8191") is None
+
+
+def test_fetch_and_clean_passes_flaresolverr_url_from_config():
+    with patch.object(url_fetcher, "fetch_page", return_value=None) as fp:
+        url_fetcher._fetch_and_clean(
+            "https://a.com/x", _config(flaresolverr_url="http://fs:8191")
+        )
+    fp.assert_called_once_with("https://a.com/x", flaresolverr_url="http://fs:8191")
+
+
+def test_config_load_reads_flaresolverr_url(tmp_path):
+    from kindle_email import config as cfg
+
+    toml = tmp_path / "config.toml"
+    toml.write_text(
+        """
+[imap]
+host = "imap.example.com"
+username = "u@example.com"
+password = "x"
+
+[smtp]
+host = "smtp.example.com"
+username = "u@example.com"
+password = "x"
+
+[kindle]
+address = "k@kindle.com"
+from_address = "u@example.com"
+
+[processing]
+flaresolverr_url = "http://host.docker.internal:8191"
+"""
+    )
+    loaded = cfg.load(toml)
+    assert loaded.processing.flaresolverr_url == "http://host.docker.internal:8191"

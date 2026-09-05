@@ -48,6 +48,9 @@ class ProcessingConfig:
     max_images_per_email: int
     download_external_images: bool
     image_timeout_seconds: int
+    # Local FlareSolverr endpoint (e.g. "http://host.docker.internal:8191") used
+    # as a last-resort fetch fallback for Cloudflare-walled pages; None = off.
+    flaresolverr_url: str | None = None
 
 
 @dataclass
@@ -150,6 +153,7 @@ def load(path: str | Path = "config.toml") -> Config:
             max_images_per_email=int(processing.get("max_images_per_email", 20)),
             download_external_images=bool(processing.get("download_external_images", True)),
             image_timeout_seconds=int(processing.get("image_timeout_seconds", 10)),
+            flaresolverr_url=processing.get("flaresolverr_url") or None,
         ),
         raindrop=raindrop_config,
         discord=discord_config,

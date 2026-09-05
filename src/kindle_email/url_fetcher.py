@@ -7,6 +7,7 @@ cleaner used for newsletter emails, and merged into one EPUB.
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 import urllib.error
@@ -32,6 +33,9 @@ _FETCH_TIMEOUT_SEC = 20
 _MIN_ARTICLE_TEXT_CHARS = 200
 # How many client-side (meta-refresh / JS) redirects fetch_page will chase.
 _MAX_CLIENT_REDIRECTS = 3
+# FlareSolverr drives a real browser through the Cloudflare challenge, which
+# can legitimately take tens of seconds.
+_FLARESOLVERR_TIMEOUT_MS = 60_000
 
 # Substack share links (open.substack.com) often answer with a tiny HTML page
 # that redirects to the post via <meta refresh> / location.replace() rather than
@@ -120,7 +124,7 @@ def _fetch_and_clean(url: str, config: ProcessingConfig) -> CleanedContent | Non
 
     Returns None if the fetch itself failed (network error / bot block).
     """
-    html = fetch_page(url)
+    html = fetch_page(url, flaresolverr_url=config.flaresolverr_url)
     if not html:
         return None
     domain = urllib.parse.urlparse(url).netloc or "web"
@@ -134,14 +138,14 @@ def _article_text_len(html: str) -> int:
     return len(BeautifulSoup(html, "lxml").get_text(" ", strip=True))
 
 
-def fetch_page(url: str) -> str | None:
+def fetch_page(url: str, flaresolverr_url: str | None = None) -> str | None:
     """Fetch a URL and return its HTML body. SSRF-protected and size-capped.
 
     On 403/406/429 from the origin (typical bot-block responses), falls back to
-    https://r.jina.ai/<url>, which renders many gated pages server-side. The
-    fallback itself can be blocked when the target sits behind a Cloudflare
-    CAPTCHA (e.g. dl.acm.org) — those pages are not retrievable without a real
-    browser session.
+    https://r.jina.ai/<url>, which renders many gated pages server-side. When
+    that is also blocked (Cloudflare CAPTCHA walls — patreon.com, dl.acm.org)
+    and a FlareSolverr endpoint is configured, asks it to solve the challenge
+    in a real browser and return the rendered DOM.
     """
     if not is_safe_url(url):
         log.warning("Blocked URL fetch (SSRF protection): %s", url)
@@ -152,7 +156,14 @@ def fetch_page(url: str) -> str | None:
         return _follow_client_redirects(html, url)
 
     log.info("Direct fetch blocked, trying r.jina.ai fallback: %s", url)
-    return _jina_fetch(url)
+    html = _jina_fetch(url)
+    if html is not None:
+        return html
+
+    if flaresolverr_url is None:
+        return None
+    log.info("Jina fallback failed, trying FlareSolverr: %s", url)
+    return _flaresolverr_fetch(url, flaresolverr_url)
 
 
 def _follow_client_redirects(html: str, url: str) -> str:
@@ -259,6 +270,42 @@ def _jina_fetch(url: str) -> str | None:
 
     paragraphs = "".join(f"<p>{_escape(line)}</p>\n" for line in text.splitlines() if line.strip())
     return f"<html><body>{paragraphs}</body></html>"
+
+
+def _flaresolverr_fetch(url: str, endpoint: str) -> str | None:
+    """Fetch via a FlareSolverr instance, which solves Cloudflare challenges in
+    a real browser session and returns the rendered DOM.
+
+    Returns None if the solver is unreachable, reports failure, or the target
+    still answered with an error status.
+    """
+    payload = json.dumps(
+        {"cmd": "request.get", "url": url, "maxTimeout": _FLARESOLVERR_TIMEOUT_MS}
+    ).encode()
+    try:
+        req = urllib.request.Request(
+            endpoint.rstrip("/") + "/v1",
+            data=payload,
+            headers={"Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=_FLARESOLVERR_TIMEOUT_MS / 1000 + 10) as resp:
+            data = resp.read(_MAX_PAGE_BYTES + 1)
+        envelope = json.loads(data.decode("utf-8", errors="replace"))
+    except (urllib.error.URLError, OSError, ValueError) as e:
+        log.warning("FlareSolverr fallback failed for %s: %s", url, e)
+        return None
+
+    if envelope.get("status") != "ok":
+        log.warning(
+            "FlareSolverr could not solve %s: %s", url, envelope.get("message", "(no message)")
+        )
+        return None
+    solution = envelope.get("solution") or {}
+    if not isinstance(solution.get("status"), int) or solution["status"] >= 400:
+        log.warning("FlareSolverr got HTTP %s from %s", solution.get("status"), url)
+        return None
+    html = solution.get("response") or ""
+    return html[: _MAX_PAGE_BYTES] or None
 
 
 def _escape(s: str) -> str:

@@ -5,3 +5,5 @@ __pycache__/
 dist/
 .env
 .claude/
+uv.lock
+.venv/

@@ -50,6 +50,10 @@ max_images_per_email = 20
 download_external_images = true
 # Timeout for downloading each external image (seconds)
 image_timeout_seconds = 10
+# Optional: local FlareSolverr endpoint, used as a last-resort fetch fallback
+# when both the direct fetch and r.jina.ai are blocked by a Cloudflare
+# challenge (e.g. patreon.com). Omit to disable.
+# flaresolverr_url = "http://host.docker.internal:8191"
 
 # Optional: drain Raindrop.io bookmarks tagged for Kindle on each poll.
 # Tag a bookmark #sendtokindle and the app will fetch, deliver, and retag it
