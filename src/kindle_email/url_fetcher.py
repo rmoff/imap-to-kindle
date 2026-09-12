@@ -64,6 +64,7 @@ def build_cleaned_content(urls: list[str], config: ProcessingConfig) -> CleanedC
     """
     sections: list[str] = []
     titles: list[str] = []
+    authors: list[str] = []
     merged_images: dict[str, bytes] = {}
     merged_types: dict[str, str] = {}
 
@@ -99,6 +100,7 @@ def build_cleaned_content(urls: list[str], config: ProcessingConfig) -> CleanedC
 
         title = cleaned.title or url
         titles.append(title)
+        authors.append(cleaned.author)
         sections.append(
             f'<h1>{_escape(title)}</h1>\n'
             f'<p><a href="{_escape(url)}">{_escape(url)}</a></p>\n'
@@ -109,7 +111,7 @@ def build_cleaned_content(urls: list[str], config: ProcessingConfig) -> CleanedC
         return None
 
     combined_title = titles[0] if len(titles) == 1 else f"{titles[0]} (+{len(titles) - 1} more)"
-    author = urllib.parse.urlparse(urls[0]).netloc or "Web"
+    author = authors[0]  # sections is non-empty here, so authors is too
     return CleanedContent(
         title=combined_title,
         html="".join(sections),
@@ -129,7 +131,39 @@ def _fetch_and_clean(url: str, config: ProcessingConfig) -> CleanedContent | Non
         return None
     domain = urllib.parse.urlparse(url).netloc or "web"
     fake = ParsedEmail(subject=url, sender=domain, date="", html_body=html)
-    return cleaner.clean(fake, config)
+    result = cleaner.clean(fake, config)
+    # Prefer a real byline / publication name over the bare host, so the Calibre
+    # library shows a meaningful author rather than "www.example.com".
+    result.author = _extract_author(html) or _prettify_domain(url)
+    return result
+
+
+def _prettify_domain(url: str) -> str:
+    """A human-ish source label from a URL: the host without a leading 'www.'."""
+    netloc = urllib.parse.urlparse(url).netloc
+    if netloc.startswith("www."):
+        netloc = netloc[4:]
+    return netloc or "Web"
+
+
+def _extract_author(html: str) -> str | None:
+    """Best-effort author/publication from a page's <head> metadata.
+
+    Prefers a byline (<meta name=author> / article:author), then the site name
+    (og:site_name). Ignores URL-valued author tags (often a social-profile link).
+    """
+    try:
+        soup = BeautifulSoup(html, "lxml")
+    except Exception:
+        return None
+    for attrs in ({"name": "author"}, {"property": "article:author"}, {"property": "og:site_name"}):
+        tag = soup.find("meta", attrs=attrs)
+        if not tag:
+            continue
+        value = (tag.get("content") or "").strip()
+        if value and len(value) <= 100 and not value.lower().startswith(("http://", "https://")):
+            return value
+    return None
 
 
 def _article_text_len(html: str) -> int:

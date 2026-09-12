@@ -307,3 +307,47 @@ flaresolverr_url = "http://host.docker.internal:8191"
     )
     loaded = cfg.load(toml)
     assert loaded.processing.flaresolverr_url == "http://host.docker.internal:8191"
+
+
+# --- author metadata -------------------------------------------------------
+
+def test_extract_author_prefers_meta_author():
+    html = '<html><head><meta name="author" content="Jane Doe"></head><body>x</body></html>'
+    assert url_fetcher._extract_author(html) == "Jane Doe"
+
+
+def test_extract_author_falls_back_to_site_name():
+    html = '<html><head><meta property="og:site_name" content="The Guardian"></head><body>x</body></html>'
+    assert url_fetcher._extract_author(html) == "The Guardian"
+
+
+def test_extract_author_ignores_url_valued_author():
+    html = '<meta property="article:author" content="https://facebook.com/theguardian">'
+    assert url_fetcher._extract_author(html) is None
+
+
+def test_prettify_domain_strips_www():
+    assert url_fetcher._prettify_domain("https://www.theguardian.com/world/x") == "theguardian.com"
+
+
+def test_build_cleaned_content_uses_extracted_author():
+    page = (
+        '<html><head><title>My Post</title>'
+        '<meta name="author" content="Ada Lovelace"></head>'
+        f"<body>{_article_body('Real content.')}</body></html>"
+    )
+    with patch.object(url_fetcher, "fetch_page", return_value=page):
+        cleaned = url_fetcher.build_cleaned_content(["https://www.example.com/post"], _config())
+    assert cleaned is not None
+    assert cleaned.author == "Ada Lovelace"
+
+
+def test_build_cleaned_content_author_falls_back_to_domain():
+    page = (
+        '<html><head><title>My Post</title></head>'
+        f"<body>{_article_body('Real content.')}</body></html>"
+    )
+    with patch.object(url_fetcher, "fetch_page", return_value=page):
+        cleaned = url_fetcher.build_cleaned_content(["https://www.example.com/post"], _config())
+    assert cleaned is not None
+    assert cleaned.author == "example.com"

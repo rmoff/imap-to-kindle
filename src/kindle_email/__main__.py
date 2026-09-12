@@ -15,7 +15,7 @@ from .pipeline import process_email, process_raindrop
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Watch a Gmail label and deliver newsletters to your Kindle."
+        description="Watch a Gmail label (and optionally Raindrop) and deliver items as EPUBs to your e-reader."
     )
     parser.add_argument(
         "--config",
@@ -76,9 +76,10 @@ def main() -> None:
     if config.raindrop is not None:
         sources.append(f"Raindrop tag #{config.raindrop.source_tag}")
     log.info(
-        "Starting poll loop (interval: %ds, sources: %s)",
+        "Starting poll loop (interval: %ds, sources: %s, delivery: %s)",
         config.schedule.poll_interval_seconds,
         ", ".join(sources),
+        ", ".join(config.delivery.targets),
     )
     while True:
         drain_sources()

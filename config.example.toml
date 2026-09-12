@@ -11,6 +11,18 @@
 # use a .env file sourced with `set -a; source .env; set +a` if you prefer
 # env vars over the config file.
 
+[delivery]
+# Where each rendered EPUB is delivered. One or more of:
+#   "smtp" — Amazon Send-to-Kindle (needs [smtp] + [kindle] below)
+#   "cwa"  — drop into a Calibre-Web-Automated ingest folder (needs [cwa] below),
+#            which auto-imports it into the Calibre library and serves it to
+#            KOReader / any OPDS reader.
+# A single string also works: target = "cwa". Listing both delivers to both, and
+# a run only counts as successful if every listed target succeeds.
+# Sections for targets you don't list are ignored, so you can leave stale [smtp]
+# credentials in place and flip back by editing this one line.
+targets = ["cwa"]
+
 [imap]
 host = "imap.gmail.com"
 port = 993
@@ -28,6 +40,17 @@ password = "your-gmail-app-password"
 address = "your_name@kindle.com"
 # The address you send FROM — must be in your Kindle's Approved Personal Document Email List
 from_address = "you@gmail.com"
+
+# Only needed when "cwa" is in delivery.targets.
+[cwa]
+# Folder Calibre-Web-Automated watches for auto-import. This is the path AS SEEN
+# INSIDE this container — bind-mount your CWA ingest dir here in docker-compose.
+ingest_dir = "/cwa-book-ingest"
+# Optional but recommended: an unwatched scratch dir on the SAME filesystem as
+# ingest_dir. The EPUB is written here then atomically renamed into ingest_dir,
+# so CWA's watcher never sees a half-written file. Omit to use a hidden temp file
+# inside ingest_dir instead.
+# staging_dir = "/cwa-ingest-tmp"
 
 [labels]
 # Gmail label to watch for incoming newsletters

@@ -35,13 +35,17 @@ def _post(webhook_url: str, content: str) -> None:
         log.warning("Discord webhook failed: %s", e)
 
 
+def _build_message(*, success: bool, source: str, title: str, detail: str = "") -> str:
+    icon = "✅" if success else "❌"
+    verb = "delivered" if success else "FAILED"
+    msg = f"{icon} **{verb}** [{source}] {title}"
+    if detail:
+        msg += f"\n```{detail}```"
+    return msg
+
+
 def notify(discord: DiscordConfig | None, *, success: bool, source: str, title: str, detail: str = "") -> None:
     """Send a notification. Silently no-ops if discord is not configured."""
     if discord is None or not discord.webhook_url:
         return
-    icon = "✅" if success else "❌"
-    verb = "sent to Kindle" if success else "FAILED"
-    msg = f"{icon} **{verb}** [{source}] {title}"
-    if detail:
-        msg += f"\n```{detail}```"
-    _post(discord.webhook_url, msg)
+    _post(discord.webhook_url, _build_message(success=success, source=source, title=title, detail=detail))

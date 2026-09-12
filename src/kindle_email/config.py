@@ -67,15 +67,59 @@ class DiscordConfig:
 
 
 @dataclass
+class CwaConfig:
+    # Folder CWA watches for auto-import (container path). EPUBs are dropped here.
+    ingest_dir: str
+    # Optional unwatched scratch dir on the SAME filesystem as ingest_dir. When set,
+    # the EPUB is written here first and atomically renamed into ingest_dir, so CWA's
+    # watcher never sees a partial file. Falls back to a dotfile temp inside ingest_dir.
+    staging_dir: str | None = None
+
+
+@dataclass
+class DeliveryConfig:
+    # Ordered, de-duplicated subset of {"smtp", "cwa"}. Each produced EPUB is
+    # delivered to every listed target; delivery counts as successful only if
+    # all targets succeed.
+    targets: list[str]
+
+
+@dataclass
 class Config:
     imap: ImapConfig
-    smtp: SmtpConfig
-    kindle: KindleConfig
     labels: LabelConfig
     schedule: ScheduleConfig
     processing: ProcessingConfig
+    # Defaults to Amazon Send-to-Kindle (the app's original, only behaviour) when a
+    # Config is built without an explicit target; load() always sets this from config.
+    delivery: DeliveryConfig = field(default_factory=lambda: DeliveryConfig(targets=["smtp"]))
+    smtp: SmtpConfig | None = None
+    kindle: KindleConfig | None = None
+    cwa: CwaConfig | None = None
     raindrop: RaindropConfig | None = None
     discord: DiscordConfig | None = None
+
+
+_ALLOWED_TARGETS = ("smtp", "cwa")
+
+
+def _parse_targets(delivery_section: dict) -> list[str]:
+    """Parse and validate [delivery] targets. Accepts a string or a list; defaults to smtp."""
+    raw_targets = delivery_section.get("targets", delivery_section.get("target", ["smtp"]))
+    if isinstance(raw_targets, str):
+        raw_targets = [raw_targets]
+    if not isinstance(raw_targets, list) or not raw_targets:
+        raise ValueError("delivery.targets must be a non-empty list (or a single string).")
+    targets: list[str] = []
+    for item in raw_targets:
+        name = str(item).strip().lower()
+        if name not in _ALLOWED_TARGETS:
+            raise ValueError(
+                f"Unknown delivery target '{name}'. Allowed: {', '.join(_ALLOWED_TARGETS)}."
+            )
+        if name not in targets:
+            targets.append(name)
+    return targets
 
 
 def load(path: str | Path = "config.toml") -> Config:
@@ -83,15 +127,46 @@ def load(path: str | Path = "config.toml") -> Config:
         raw = tomllib.load(f)
 
     imap_section = raw["imap"]
-    smtp_section = raw["smtp"]
-
     imap_password = os.environ.get("KINDLE_EMAIL_IMAP_PASSWORD") or imap_section.get("password", "")
-    smtp_password = os.environ.get("KINDLE_EMAIL_SMTP_PASSWORD") or smtp_section.get("password", "")
-
     if not imap_password:
         raise ValueError("IMAP password not set. Use KINDLE_EMAIL_IMAP_PASSWORD env var or imap.password in config.")
-    if not smtp_password:
-        raise ValueError("SMTP password not set. Use KINDLE_EMAIL_SMTP_PASSWORD env var or smtp.password in config.")
+
+    targets = _parse_targets(raw.get("delivery", {}))
+
+    # SMTP + Kindle are only needed when delivering via Amazon Send-to-Kindle.
+    smtp_config: SmtpConfig | None = None
+    kindle_config: KindleConfig | None = None
+    if "smtp" in targets:
+        smtp_section = raw.get("smtp")
+        if smtp_section is None:
+            raise ValueError("Delivery target 'smtp' requires an [smtp] section.")
+        smtp_password = os.environ.get("KINDLE_EMAIL_SMTP_PASSWORD") or smtp_section.get("password", "")
+        if not smtp_password:
+            raise ValueError("SMTP password not set. Use KINDLE_EMAIL_SMTP_PASSWORD env var or smtp.password in config.")
+        smtp_config = SmtpConfig(
+            host=smtp_section["host"],
+            port=int(smtp_section.get("port", 587)),
+            username=smtp_section["username"],
+            password=smtp_password,
+        )
+        kindle_section = raw.get("kindle")
+        if kindle_section is None:
+            raise ValueError("Delivery target 'smtp' requires a [kindle] section.")
+        kindle_config = KindleConfig(
+            address=kindle_section["address"],
+            from_address=kindle_section["from_address"],
+        )
+
+    # CWA ingest folder is only needed when delivering into the Calibre library.
+    cwa_config: CwaConfig | None = None
+    if "cwa" in targets:
+        cwa_section = raw.get("cwa")
+        if not cwa_section or not cwa_section.get("ingest_dir"):
+            raise ValueError("Delivery target 'cwa' requires a [cwa] section with ingest_dir.")
+        cwa_config = CwaConfig(
+            ingest_dir=cwa_section["ingest_dir"],
+            staging_dir=cwa_section.get("staging_dir") or None,
+        )
 
     labels = raw.get("labels", {})
     schedule = raw.get("schedule", {})
@@ -130,16 +205,7 @@ def load(path: str | Path = "config.toml") -> Config:
             username=imap_section["username"],
             password=imap_password,
         ),
-        smtp=SmtpConfig(
-            host=smtp_section["host"],
-            port=int(smtp_section.get("port", 587)),
-            username=smtp_section["username"],
-            password=smtp_password,
-        ),
-        kindle=KindleConfig(
-            address=raw["kindle"]["address"],
-            from_address=raw["kindle"]["from_address"],
-        ),
+        delivery=DeliveryConfig(targets=targets),
         labels=LabelConfig(
             watch=labels.get("watch", "SendToKindle"),
             processed=labels.get("processed", "SendToKindle/Processed"),
@@ -155,6 +221,9 @@ def load(path: str | Path = "config.toml") -> Config:
             image_timeout_seconds=int(processing.get("image_timeout_seconds", 10)),
             flaresolverr_url=processing.get("flaresolverr_url") or None,
         ),
+        smtp=smtp_config,
+        kindle=kindle_config,
+        cwa=cwa_config,
         raindrop=raindrop_config,
         discord=discord_config,
     )
