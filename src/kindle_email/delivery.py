@@ -10,6 +10,7 @@ Both are dispatched by :func:`deliver` according to ``config.delivery.targets``.
 
 from __future__ import annotations
 
+import errno
 import logging
 import os
 import tempfile
@@ -39,13 +40,33 @@ def _unique_path(directory: str, filename: str) -> str:
         i += 1
 
 
+def _atomic_write(data: bytes, temp_dir: str, dest: str) -> None:
+    """Write *data* to a temp file in *temp_dir*, then atomically rename onto *dest*.
+
+    Raises OSError (e.g. EXDEV if temp_dir and dest are on different filesystems).
+    """
+    fd, tmp = tempfile.mkstemp(dir=temp_dir, prefix=".cwa-", suffix=".part")
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+        os.replace(tmp, dest)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
 def deliver_to_cwa(filename: str, data: bytes, config: Config) -> bool:
     """Write *data* into CWA's ingest folder atomically.
 
     The bytes are written to a temp file first, then ``os.replace``d into the ingest
-    dir, so CWA's folder watcher never observes a half-written EPUB. When a separate
-    ``staging_dir`` is configured (an unwatched dir on the same filesystem), the
-    watcher never sees the temp file at all. Returns True on success, False on error.
+    dir, so CWA's folder watcher never observes a half-written EPUB. A configured
+    ``staging_dir`` keeps the temp file out of the watched folder entirely — but only
+    if it is on the same filesystem; in Docker, separate bind mounts are separate
+    devices, so if the rename would cross a device boundary (EXDEV) we transparently
+    fall back to staging inside the ingest dir. Returns True on success, False on error.
     """
     cwa = config.cwa
     if cwa is None:
@@ -56,20 +77,21 @@ def deliver_to_cwa(filename: str, data: bytes, config: Config) -> bool:
     staging_dir = cwa.staging_dir or ingest_dir
     try:
         os.makedirs(ingest_dir, exist_ok=True)
+        dest = _unique_path(ingest_dir, filename)
         if staging_dir != ingest_dir:
             os.makedirs(staging_dir, exist_ok=True)
-        fd, tmp = tempfile.mkstemp(dir=staging_dir, prefix=".cwa-", suffix=".part")
-        try:
-            with os.fdopen(fd, "wb") as f:
-                f.write(data)
-            dest = _unique_path(ingest_dir, filename)
-            os.replace(tmp, dest)
-        except BaseException:
             try:
-                os.unlink(tmp)
-            except OSError:
-                pass
-            raise
+                _atomic_write(data, staging_dir, dest)
+            except OSError as e:
+                if e.errno != errno.EXDEV:
+                    raise
+                log.warning(
+                    "Staging dir %s is on a different filesystem than ingest dir %s; "
+                    "writing via the ingest dir instead", staging_dir, ingest_dir,
+                )
+                _atomic_write(data, ingest_dir, dest)
+        else:
+            _atomic_write(data, ingest_dir, dest)
     except OSError as e:
         log.error("Failed to write '%s' to CWA ingest dir %s: %s", filename, ingest_dir, e)
         return False

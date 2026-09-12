@@ -46,11 +46,13 @@ from_address = "you@gmail.com"
 # Folder Calibre-Web-Automated watches for auto-import. This is the path AS SEEN
 # INSIDE this container — bind-mount your CWA ingest dir here in docker-compose.
 ingest_dir = "/cwa-book-ingest"
-# Optional but recommended: an unwatched scratch dir on the SAME filesystem as
-# ingest_dir. The EPUB is written here then atomically renamed into ingest_dir,
-# so CWA's watcher never sees a half-written file. Omit to use a hidden temp file
-# inside ingest_dir instead.
-# staging_dir = "/cwa-ingest-tmp"
+# Optional: a scratch dir for the temp file, which is then atomically renamed into
+# ingest_dir so CWA never sees a half-written file. It MUST be on the same
+# filesystem as ingest_dir. In Docker, separate bind mounts are separate devices,
+# so put staging INSIDE the same mount (e.g. a hidden sibling dir), NOT a second
+# mount. If the rename would cross devices the sink falls back to a hidden temp
+# inside ingest_dir automatically. Omit to always use that in-ingest-dir temp.
+# staging_dir = "/cwa-book-ingest/.staging"
 
 [labels]
 # Gmail label to watch for incoming newsletters

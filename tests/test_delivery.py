@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import errno
+
 from kindle_email import delivery
 from kindle_email.config import (
     Config,
@@ -68,6 +70,31 @@ def test_cwa_sink_returns_false_when_dir_cannot_be_created(tmp_path):
     blocker.write_text("i am a file, not a dir")
     config = _config(targets=["cwa"], ingest_dir=str(blocker / "sub"))
     assert delivery.deliver_to_cwa("a.epub", b"data", config) is False
+
+
+def test_cwa_sink_recovers_when_staging_is_cross_device(tmp_path, monkeypatch):
+    # In Docker, ingest_dir and staging_dir can be separate bind mounts, so the
+    # rename raises EXDEV. The sink must fall back to writing via the ingest dir.
+    ingest = tmp_path / "ingest"
+    ingest.mkdir()
+    staging = tmp_path / "staging"
+    staging.mkdir()
+    config = _config(targets=["cwa"], ingest_dir=str(ingest), staging_dir=str(staging))
+
+    real_replace = delivery.os.replace
+    calls = {"n": 0}
+
+    def flaky_replace(src, dst):
+        calls["n"] += 1
+        if calls["n"] == 1 and str(staging) in str(src):
+            raise OSError(errno.EXDEV, "Invalid cross-device link")
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(delivery.os, "replace", flaky_replace)
+    ok = delivery.deliver_to_cwa("x.epub", b"data", config)
+    assert ok is True
+    assert (ingest / "x.epub").read_bytes() == b"data"
+    assert list(staging.iterdir()) == []  # cross-device temp cleaned up
 
 
 def test_cwa_sink_uses_separate_staging_dir(tmp_path):
