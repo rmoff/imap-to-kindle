@@ -67,6 +67,20 @@ def test_build_cleaned_content_single_url_uses_page_title():
     assert cleaned.title == "Just One"
 
 
+def test_build_cleaned_content_single_url_has_no_section_heading():
+    """epub.build already renders content.title as the <h1>; a per-section
+    heading on a single-page book would repeat it."""
+    page = (
+        "<html><head><title>Just One</title></head>"
+        f"<body>{_article_body('Some text.')}</body></html>"
+    )
+    with patch.object(url_fetcher, "fetch_page", return_value=page):
+        cleaned = url_fetcher.build_cleaned_content(["https://a.com/1"], _config())
+    assert cleaned is not None
+    assert "<h1>" not in cleaned.html
+    assert "https://a.com/1" in cleaned.html
+
+
 def test_build_cleaned_content_returns_none_when_all_fail():
     with patch.object(url_fetcher, "fetch_page", return_value=None):
         cleaned = url_fetcher.build_cleaned_content(["https://a.com/1"], _config())
@@ -84,7 +98,8 @@ def test_build_cleaned_content_skips_failed_url():
             ["https://a.com/broken", "https://b.com/ok"], _config()
         )
     assert cleaned is not None
-    assert "Survivor" in cleaned.html
+    assert cleaned.title == "Survivor"
+    assert "Content." in cleaned.html
 
 
 # A Substack-style redirect interstitial: the <title> is the destination URL

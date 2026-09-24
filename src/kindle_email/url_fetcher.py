@@ -102,13 +102,17 @@ def build_cleaned_content(urls: list[str], config: ProcessingConfig) -> CleanedC
         titles.append(title)
         authors.append(cleaned.author)
         sections.append(
-            f'<h1>{_escape(title)}</h1>\n'
             f'<p><a href="{_escape(url)}">{_escape(url)}</a></p>\n'
             f'{block_html}\n<hr/>\n'
         )
 
     if not sections:
         return None
+
+    # epub.build renders the book title as the top <h1>. With one page that
+    # title *is* the page title, so a per-section heading would repeat it.
+    if len(sections) > 1:
+        sections = [f'<h1>{_escape(t)}</h1>\n{s}' for t, s in zip(titles, sections)]
 
     combined_title = titles[0] if len(titles) == 1 else f"{titles[0]} (+{len(titles) - 1} more)"
     author = authors[0]  # sections is non-empty here, so authors is too
