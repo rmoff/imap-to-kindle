@@ -1,3 +1,5 @@
+# Example only. Copy to a deployment directory alongside your config.toml and .env,
+# then run `docker compose up -d` there. Not meant to be run from this repo.
 services:
   kindle-email:
     build: .

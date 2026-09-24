@@ -73,6 +73,9 @@ from_address = "you@example.com"
 
 **With Docker (recommended):**
 
+Copy `docker-compose.example.yml` into a deployment directory as `docker-compose.yml`,
+next to your `config.toml` and `.env`, adjust the image/volumes, then run:
+
 ```bash
 docker compose up -d
 ```
