@@ -111,6 +111,7 @@ python -m kindle_email --once
 | `processing.max_images_per_email` | `20` | Max images per email |
 | `processing.download_external_images` | `true` | Download images from external URLs |
 | `processing.image_timeout_seconds` | `10` | Timeout per image download |
+| `processing.pdf_relayout` | `true` | Restack two-column PDFs for the e-reader screen (see [PDFs](#pdfs)) |
 | `raindrop.enabled` | `false` | Turn on Raindrop polling |
 | `raindrop.token` | | Raindrop test token (or `KINDLE_EMAIL_RAINDROP_TOKEN` env var) |
 | `raindrop.source_tag` | `sendtokindle` | Tag that marks a bookmark for delivery |
@@ -138,6 +139,14 @@ token = "your-token"
 
 3. On your phone: share a URL to Raindrop and add the `sendtokindle` tag. Next poll it lands on your Kindle.
 
+### PDFs
+
+A bookmark that points at a PDF (Raindrop marks these as documents, or the URL ends in `.pdf`, or it's an `arxiv.org/pdf/…` link) is delivered as a PDF rather than rendered as a web page. It's named after the paper's title, read from the PDF itself.
+
+Two-column PDFs, the usual academic-paper layout, are unreadable at full-page size on a 6–7" screen. So each column is cropped out and restacked onto pages shaped like a Kindle screen (3:4) and as wide as one column. Text shows at roughly print size with no zooming or panning. Full-width parts (title block, wide figures and tables) are kept whole and scaled to fit. Page breaks fall between lines, never through one. The text stays real text rather than an image, so it's still searchable and highlightable.
+
+Anything that isn't clearly two-column is sent unchanged. The same applies to PDFs attached to emails. Set `processing.pdf_relayout = false` to always send PDFs as-is.
+
 ---
 
 ## Project structure
@@ -150,7 +159,8 @@ src/kindle_email/
 ├── raindrop_fetcher.py  # Raindrop.io API client
 ├── parser.py            # MIME parsing
 ├── cleaner.py           # Content extraction and cleanup
-├── url_fetcher.py       # Fetch a URL and render it as cleaned HTML
+├── url_fetcher.py       # Fetch a URL and render it as cleaned HTML (or fetch a PDF)
+├── pdf_layout.py        # Restack two-column PDFs for an e-reader screen
 ├── epub.py              # EPUB generation
 ├── sender.py            # SMTP delivery
 └── pipeline.py          # Orchestration

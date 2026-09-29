@@ -51,6 +51,9 @@ class ProcessingConfig:
     # Local FlareSolverr endpoint (e.g. "http://host.docker.internal:8191") used
     # as a last-resort fetch fallback for Cloudflare-walled pages; None = off.
     flaresolverr_url: str | None = None
+    # Restack two-column PDFs (academic papers) into single-column pages sized
+    # for an e-reader screen. Other PDFs are always delivered unchanged.
+    pdf_relayout: bool = True
 
 
 @dataclass
@@ -220,6 +223,7 @@ def load(path: str | Path = "config.toml") -> Config:
             download_external_images=bool(processing.get("download_external_images", True)),
             image_timeout_seconds=int(processing.get("image_timeout_seconds", 10)),
             flaresolverr_url=processing.get("flaresolverr_url") or None,
+            pdf_relayout=bool(processing.get("pdf_relayout", True)),
         ),
         smtp=smtp_config,
         kindle=kindle_config,

@@ -13,6 +13,7 @@ dependencies = [
     "lxml==5.3.0",
     "lxml_html_clean==0.4.1",
     "ebooklib==0.18",
+    "pymupdf==1.28.2",
 ]
 
 [project.optional-dependencies]

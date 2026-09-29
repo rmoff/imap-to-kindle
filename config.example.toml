@@ -79,6 +79,9 @@ image_timeout_seconds = 10
 # when both the direct fetch and r.jina.ai are blocked by a Cloudflare
 # challenge (e.g. patreon.com). Omit to disable.
 # flaresolverr_url = "http://host.docker.internal:8191"
+# Restack two-column PDFs (academic papers) into single-column, screen-shaped
+# pages. Other PDFs are always sent unchanged.
+# pdf_relayout = true
 
 # Optional: drain Raindrop.io bookmarks tagged for Kindle on each poll.
 # Tag a bookmark #sendtokindle and the app will fetch, deliver, and add

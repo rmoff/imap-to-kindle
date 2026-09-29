@@ -34,6 +34,9 @@ class Raindrop:
     link: str
     title: str
     tags: list[str] = field(default_factory=list)
+    # Raindrop's own classification from the page's content type:
+    # "link", "article", "document" (PDFs), "image", "video", "audio".
+    type: str = "link"
 
 
 class RaindropAPIError(Exception):
@@ -70,7 +73,10 @@ def fetch_raindrops(config: Config) -> Iterator[Raindrop]:
         if rc.processed_tag in tags or rc.failed_tag in tags:
             log.warning("Search returned already-handled raindrop %d; skipping", rid)
             continue
-        yield Raindrop(id=rid, link=link, title=item.get("title") or link, tags=list(tags))
+        yield Raindrop(
+            id=rid, link=link, title=item.get("title") or link, tags=list(tags),
+            type=item.get("type") or "link",
+        )
 
 
 def mark_processed(config: Config, raindrop: Raindrop) -> None:

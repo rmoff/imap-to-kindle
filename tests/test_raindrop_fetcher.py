@@ -109,6 +109,16 @@ def test_fetch_raindrops_skips_malformed_items():
     assert [r.id for r in items] == [1]
 
 
+def test_fetch_raindrops_carries_raindrop_type():
+    payload = {"items": [
+        {"_id": 1, "link": "https://a.com/p.pdf", "title": "P", "tags": ["sendtokindle"], "type": "document"},
+        {"_id": 2, "link": "https://b.com/y", "title": "B", "tags": ["sendtokindle"]},
+    ]}
+    with patch.object(raindrop_fetcher.urllib.request, "urlopen", return_value=_stub_response(payload)):
+        items = list(raindrop_fetcher.fetch_raindrops(_make_config()))
+    assert [r.type for r in items] == ["document", "link"]
+
+
 def test_mark_processed_adds_processed_tag_keeping_source_and_others():
     config = _make_config()
     captured = {}

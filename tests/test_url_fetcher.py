@@ -366,3 +366,41 @@ def test_build_cleaned_content_author_falls_back_to_domain():
         cleaned = url_fetcher.build_cleaned_content(["https://www.example.com/post"], _config())
     assert cleaned is not None
     assert cleaned.author == "example.com"
+
+
+# --- PDFs ---------------------------------------------------------------------
+
+
+def test_looks_like_pdf():
+    assert url_fetcher.looks_like_pdf("https://www.vldb.org/pvldb/vol19/p4953-x.pdf")
+    assert url_fetcher.looks_like_pdf("https://example.com/Paper.PDF?download=1")
+    assert url_fetcher.looks_like_pdf("https://arxiv.org/pdf/1706.03762")
+    assert not url_fetcher.looks_like_pdf("https://arxiv.org/abs/1706.03762")
+    assert not url_fetcher.looks_like_pdf("https://example.com/post")
+
+
+def test_fetch_pdf_returns_pdf_bytes():
+    pdf = b"%PDF-1.6\n...rest of file"
+    with patch.object(url_fetcher, "is_safe_url", return_value=True), \
+         patch.object(url_fetcher.urllib.request, "urlopen", return_value=_FakeHttpResponse(pdf)):
+        assert url_fetcher.fetch_pdf("https://a.com/p.pdf") == pdf
+
+
+def test_fetch_pdf_none_for_html_landing_page():
+    html = b"<html><body>Please log in</body></html>"
+    with patch.object(url_fetcher, "is_safe_url", return_value=True), \
+         patch.object(url_fetcher.urllib.request, "urlopen", return_value=_FakeHttpResponse(html)):
+        assert url_fetcher.fetch_pdf("https://a.com/p.pdf") is None
+
+
+def test_fetch_pdf_none_when_too_big():
+    big = b"%PDF-" + b"0" * url_fetcher._MAX_PDF_BYTES
+    with patch.object(url_fetcher, "is_safe_url", return_value=True), \
+         patch.object(url_fetcher.urllib.request, "urlopen", return_value=_FakeHttpResponse(big)):
+        assert url_fetcher.fetch_pdf("https://a.com/p.pdf") is None
+
+
+def test_fetch_pdf_blocks_ssrf():
+    with patch.object(url_fetcher.urllib.request, "urlopen") as urlopen:
+        assert url_fetcher.fetch_pdf("http://127.0.0.1/p.pdf") is None
+    urlopen.assert_not_called()

@@ -25,6 +25,8 @@ from .parser import ParsedEmail
 log = logging.getLogger(__name__)
 
 _MAX_PAGE_BYTES = 5 * 1024 * 1024
+# Papers are typically well under this; Amazon's Send-to-Kindle caps email at 50 MB.
+_MAX_PDF_BYTES = 40 * 1024 * 1024
 _FETCH_TIMEOUT_SEC = 20
 # Minimum amount of visible article text we expect a real page to yield after
 # cleaning. Below this we assume extraction failed — e.g. a paywall stub or a
@@ -174,6 +176,47 @@ def _article_text_len(html: str) -> int:
     """Length of the visible text in a cleaned HTML body, used as a proxy for
     whether a real article was extracted (vs. a redirect/paywall stub)."""
     return len(BeautifulSoup(html, "lxml").get_text(" ", strip=True))
+
+
+def looks_like_pdf(url: str) -> bool:
+    """True for URLs that name a PDF (…/paper.pdf, arxiv.org/pdf/…)."""
+    parts = urllib.parse.urlparse(url)
+    path = parts.path.lower()
+    return path.endswith(".pdf") or (parts.netloc.endswith("arxiv.org") and path.startswith("/pdf/"))
+
+
+def fetch_pdf(url: str) -> bytes | None:
+    """Download a PDF. SSRF-protected and size-capped.
+
+    Returns None if the fetch fails or the response isn't actually a PDF
+    (e.g. a landing page or login wall), so the caller can fall back to
+    treating the URL as a web page.
+    """
+    if not is_safe_url(url):
+        log.warning("Blocked URL fetch (SSRF protection): %s", url)
+        return None
+    try:
+        req = urllib.request.Request(
+            url,
+            headers={
+                "User-Agent": _USER_AGENT,
+                "Accept": "application/pdf,*/*;q=0.8",
+                "Accept-Encoding": "identity",
+            },
+        )
+        with urllib.request.urlopen(req, timeout=_FETCH_TIMEOUT_SEC) as resp:
+            data = resp.read(_MAX_PDF_BYTES + 1)
+    except (urllib.error.URLError, OSError) as e:
+        log.warning("Failed to fetch PDF %s: %s", url, e)
+        return None
+    if len(data) > _MAX_PDF_BYTES:
+        log.warning("PDF exceeds %d bytes, skipping: %s", _MAX_PDF_BYTES, url)
+        return None
+    # Trust the bytes, not the Content-Type: servers label PDFs all sorts of ways.
+    if not data.startswith(b"%PDF-"):
+        log.info("Response is not a PDF: %s", url)
+        return None
+    return data
 
 
 def fetch_page(url: str, flaresolverr_url: str | None = None) -> str | None:

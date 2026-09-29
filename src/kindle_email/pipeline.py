@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import logging
+import os
+import urllib.parse
 
-from . import cleaner, delivery, epub, notifier, parser, url_fetcher
+from . import cleaner, delivery, epub, notifier, parser, pdf_layout, url_fetcher
 from .config import Config
 from .fetcher import RawEmail
 from .raindrop_fetcher import Raindrop
@@ -15,6 +17,39 @@ log = logging.getLogger(__name__)
 def _is_self_sent(sender_header: str, own_address: str) -> bool:
     """Return True if the sender is the user's own address (e.g. a forwarded copy in a thread)."""
     return own_address.lower() in sender_header.lower()
+
+
+def _prepare_pdf(data: bytes, config: Config) -> bytes:
+    """Re-lay two-column PDFs for the e-reader; anything else passes through."""
+    if not config.processing.pdf_relayout:
+        return data
+    try:
+        relaid = pdf_layout.relayout_two_column(data)
+    except Exception as e:
+        log.warning("PDF re-layout failed, delivering original: %s", e)
+        return data
+    if relaid is None:
+        log.info("PDF is not two-column; delivering unchanged")
+        return data
+    log.info("Re-laid two-column PDF for the e-reader")
+    return relaid
+
+
+def _pdf_title(raindrop: Raindrop, pdf: bytes) -> str | None:
+    """The document's title. Raindrop derives a PDF bookmark's title from its
+    file name ("P fernandez moctezuma"), so prefer the one in the PDF itself."""
+    return pdf_layout.guess_title(pdf) or (raindrop.title if raindrop.title != raindrop.link else None)
+
+
+def _pdf_filename(raindrop: Raindrop, title: str | None) -> str:
+    """Name the PDF after its title, else the URL's file name."""
+    if title:
+        stem = title
+    else:
+        stem = os.path.basename(urllib.parse.urlparse(raindrop.link).path)
+        if stem.lower().endswith(".pdf"):
+            stem = stem[:-4]
+    return epub.safe_filename(stem or "document") + ".pdf"
 
 
 def _deliver_and_notify(filename: str, data: bytes, *, source: str, title: str, config: Config) -> bool:
@@ -51,6 +86,7 @@ def process_email(raw: RawEmail, config: Config) -> bool:
         if parsed.pdf_attachment is not None:
             filename, data = parsed.pdf_attachment
             log.info("Forwarding PDF attachment '%s' to Kindle", filename)
+            data = _prepare_pdf(data, config)
         elif parsed.html_body:
             cleaned = cleaner.clean(parsed, config.processing)
             filename, data = epub.generate(cleaned)
@@ -75,6 +111,15 @@ def process_raindrop(raindrop: Raindrop, config: Config) -> bool:
     label = raindrop.link
     try:
         log.info("Processing raindrop %d: %s", raindrop.id, raindrop.link)
+        if raindrop.type == "document" or url_fetcher.looks_like_pdf(raindrop.link):
+            pdf = url_fetcher.fetch_pdf(raindrop.link)
+            if pdf is not None:
+                title = _pdf_title(raindrop, pdf)
+                return _deliver_and_notify(
+                    _pdf_filename(raindrop, title), _prepare_pdf(pdf, config),
+                    source="raindrop", title=title or raindrop.link, config=config,
+                )
+            log.info("No PDF at %s; trying it as a web page", raindrop.link)
         cleaned = url_fetcher.build_cleaned_content([raindrop.link], config.processing)
         if cleaned is None:
             log.error("Could not render raindrop %d (%s)", raindrop.id, raindrop.link)
