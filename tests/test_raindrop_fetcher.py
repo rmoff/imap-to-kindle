@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import urllib.parse
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -59,9 +60,25 @@ def test_fetch_raindrops_queries_source_tag():
     with patch.object(raindrop_fetcher.urllib.request, "urlopen", side_effect=fake_urlopen):
         list(raindrop_fetcher.fetch_raindrops(_make_config()))
 
-    # Collection 0 = all; query escaped as %23sendtokindle.
     assert "/raindrops/0?" in captured["url"]
-    assert "%23sendtokindle" in captured["url"]
+    search = urllib.parse.parse_qs(urllib.parse.urlsplit(captured["url"]).query)["search"][0]
+    assert search == '#"sendtokindle" -#"sendtokindle_processed" -#"sendtokindle_failed"'
+
+
+def test_fetch_raindrops_skips_items_already_marked():
+    """Guard against the search ignoring its exclusions and re-sending old items."""
+    payload = {
+        "items": [
+            {"_id": 1, "link": "https://a.com/x", "title": "A", "tags": ["sendtokindle"]},
+            {"_id": 2, "link": "https://b.com/y", "title": "B",
+             "tags": ["sendtokindle", "sendtokindle_processed"]},
+            {"_id": 3, "link": "https://c.com/z", "title": "C",
+             "tags": ["sendtokindle", "sendtokindle_failed"]},
+        ]
+    }
+    with patch.object(raindrop_fetcher.urllib.request, "urlopen", return_value=_stub_response(payload)):
+        items = list(raindrop_fetcher.fetch_raindrops(_make_config()))
+    assert [r.id for r in items] == [1]
 
 
 def test_fetch_raindrops_yields_items_with_tags():
@@ -92,7 +109,7 @@ def test_fetch_raindrops_skips_malformed_items():
     assert [r.id for r in items] == [1]
 
 
-def test_mark_processed_swaps_source_for_processed_tag_preserving_others():
+def test_mark_processed_adds_processed_tag_keeping_source_and_others():
     config = _make_config()
     captured = {}
 
@@ -109,10 +126,7 @@ def test_mark_processed_swaps_source_for_processed_tag_preserving_others():
     assert captured["method"] == "PUT"
     assert captured["url"].endswith("/raindrop/42")
     sent_tags = json.loads(captured["body"])["tags"]
-    assert "sendtokindle" not in sent_tags
-    assert "sendtokindle_processed" in sent_tags
-    assert "tech" in sent_tags
-    assert "longreads" in sent_tags
+    assert sent_tags == ["sendtokindle", "tech", "longreads", "sendtokindle_processed"]
 
 
 def test_mark_failed_uses_failed_tag():
@@ -128,10 +142,10 @@ def test_mark_failed_uses_failed_tag():
         raindrop_fetcher.mark_failed(config, rd)
 
     sent_tags = json.loads(captured["body"])["tags"]
-    assert sent_tags == ["sendtokindle_failed"]
+    assert sent_tags == ["sendtokindle", "sendtokindle_failed"]
 
 
-def test_swap_does_not_duplicate_when_target_already_present():
+def test_mark_does_not_duplicate_when_tag_already_present():
     """If a raindrop somehow already has the target tag, don't create a duplicate."""
     config = _make_config()
     captured = {}
@@ -148,8 +162,7 @@ def test_swap_does_not_duplicate_when_target_already_present():
         raindrop_fetcher.mark_processed(config, rd)
 
     sent_tags = json.loads(captured["body"])["tags"]
-    assert sent_tags.count("sendtokindle_processed") == 1
-    assert "sendtokindle" not in sent_tags
+    assert sent_tags == ["sendtokindle", "sendtokindle_processed"]
 
 
 def test_fetch_and_process_routes_success_and_failure():

@@ -1,6 +1,10 @@
 """
 Raindrop.io API client: find raindrops tagged with the source tag, deliver
-them to Kindle, then swap the tag to mark them processed (or failed).
+them to Kindle, then add a processed (or failed) tag alongside it.
+
+The source tag is deliberately left in place: if it were removed from every
+bookmark, Raindrop would drop it from the tag list and it would stop showing
+up as a suggestion when tagging new saves.
 """
 
 from __future__ import annotations
@@ -37,13 +41,15 @@ class RaindropAPIError(Exception):
 
 
 def fetch_raindrops(config: Config) -> Iterator[Raindrop]:
-    """Yield all raindrops (across all collections) carrying the source tag."""
+    """Yield raindrops (across all collections) carrying the source tag but
+    not yet marked processed or failed."""
     assert config.raindrop is not None
     rc = config.raindrop
-    # Raindrop's search DSL: #tagname matches a specific tag. Collection 0
-    # means "search across everything the user owns".
+    # Raindrop's search DSL: #"tag" matches a specific tag, -#"tag" excludes
+    # it. Collection 0 means "search across everything the user owns".
+    search = f'#"{rc.source_tag}" -#"{rc.processed_tag}" -#"{rc.failed_tag}"'
     query = urllib.parse.urlencode(
-        {"search": f"#{rc.source_tag}", "perpage": _PAGE_SIZE, "sort": "-created"}
+        {"search": search, "perpage": _PAGE_SIZE, "sort": "-created"}
     )
     url = f"{_API_BASE}/raindrops/0?{query}"
     payload = _request("GET", url, rc.token)
@@ -59,29 +65,34 @@ def fetch_raindrops(config: Config) -> Iterator[Raindrop]:
         tags = item.get("tags") or []
         if not isinstance(tags, list):
             tags = []
+        # Belt and braces: if the search ever stopped honouring the exclusions,
+        # every past bookmark would be re-sent on every poll.
+        if rc.processed_tag in tags or rc.failed_tag in tags:
+            log.warning("Search returned already-handled raindrop %d; skipping", rid)
+            continue
         yield Raindrop(id=rid, link=link, title=item.get("title") or link, tags=list(tags))
 
 
 def mark_processed(config: Config, raindrop: Raindrop) -> None:
     assert config.raindrop is not None
-    _swap_tag(config, raindrop, config.raindrop.source_tag, config.raindrop.processed_tag)
+    _add_tag(config, raindrop, config.raindrop.processed_tag)
 
 
 def mark_failed(config: Config, raindrop: Raindrop) -> None:
     assert config.raindrop is not None
-    _swap_tag(config, raindrop, config.raindrop.source_tag, config.raindrop.failed_tag)
+    _add_tag(config, raindrop, config.raindrop.failed_tag)
 
 
-def _swap_tag(config: Config, raindrop: Raindrop, old: str, new: str) -> None:
-    """Replace `old` with `new` in the raindrop's tag list, preserving the rest."""
+def _add_tag(config: Config, raindrop: Raindrop, tag: str) -> None:
+    """Add `tag` to the raindrop's tag list, keeping the source tag and the rest."""
     assert config.raindrop is not None
-    new_tags = [t for t in raindrop.tags if t != old]
-    if new and new not in new_tags:
-        new_tags.append(new)
+    new_tags = list(raindrop.tags)
+    if tag and tag not in new_tags:
+        new_tags.append(tag)
     url = f"{_API_BASE}/raindrop/{raindrop.id}"
     body = json.dumps({"tags": new_tags}).encode()
     _request("PUT", url, config.raindrop.token, body=body)
-    log.debug("Retagged raindrop %d: %s -> %s", raindrop.id, old, new)
+    log.debug("Tagged raindrop %d with %s", raindrop.id, tag)
 
 
 def _request(method: str, url: str, token: str, body: bytes | None = None) -> dict:
@@ -111,8 +122,8 @@ def fetch_and_process(config: Config, process_fn) -> int:
     Returns count of successful deliveries. Retries transient API errors
     with exponential backoff.
 
-    process_fn returns True on success → raindrop retagged as processed;
-    False → retagged as failed.
+    process_fn returns True on success → raindrop tagged as processed;
+    False → tagged as failed.
     """
     max_retries = 3
     for attempt in range(1, max_retries + 1):

@@ -114,8 +114,8 @@ python -m kindle_email --once
 | `raindrop.enabled` | `false` | Turn on Raindrop polling |
 | `raindrop.token` | | Raindrop test token (or `KINDLE_EMAIL_RAINDROP_TOKEN` env var) |
 | `raindrop.source_tag` | `sendtokindle` | Tag that marks a bookmark for delivery |
-| `raindrop.processed_tag` | `sendtokindle_processed` | Tag applied after successful delivery |
-| `raindrop.failed_tag` | `sendtokindle_failed` | Tag applied when delivery fails |
+| `raindrop.processed_tag` | `sendtokindle_processed` | Tag added (alongside the source tag) after successful delivery |
+| `raindrop.failed_tag` | `sendtokindle_failed` | Tag added (alongside the source tag) when delivery fails |
 
 Passwords/tokens can alternatively be set via environment variables `KINDLE_EMAIL_IMAP_PASSWORD`, `KINDLE_EMAIL_SMTP_PASSWORD`, and `KINDLE_EMAIL_RAINDROP_TOKEN` (useful for Docker). Do **not** pass them on the command line — that leaks to shell history.
 
@@ -123,7 +123,7 @@ Passwords/tokens can alternatively be set via environment variables `KINDLE_EMAI
 
 ## Raindrop mode
 
-Tag any [Raindrop.io](https://raindrop.io) bookmark `#sendtokindle` and the app will fetch the page, clean it, and send it to your Kindle on the next poll. After delivery the tag is swapped to `#sendtokindle_processed` (or `#sendtokindle_failed` on failure) so nothing gets re-sent. Your other tags are preserved.
+Tag any [Raindrop.io](https://raindrop.io) bookmark `#sendtokindle` and the app will fetch the page, clean it, and send it to your Kindle on the next poll. After delivery `#sendtokindle_processed` (or `#sendtokindle_failed` on failure) is added alongside it so nothing gets re-sent. `#sendtokindle` itself stays on the bookmark, so Raindrop keeps offering it as a tag suggestion. To retry a failure, remove `#sendtokindle_failed`; to re-send, remove `#sendtokindle_processed`.
 
 ### Setup
 
