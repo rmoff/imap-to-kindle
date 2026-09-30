@@ -341,8 +341,8 @@ def test_extract_author_ignores_url_valued_author():
     assert url_fetcher._extract_author(html) is None
 
 
-def test_prettify_domain_strips_www():
-    assert url_fetcher._prettify_domain("https://www.theguardian.com/world/x") == "theguardian.com"
+def testprettify_domain_strips_www():
+    assert url_fetcher.prettify_domain("https://www.theguardian.com/world/x") == "theguardian.com"
 
 
 def test_build_cleaned_content_uses_extracted_author():

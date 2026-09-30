@@ -137,7 +137,7 @@ def test_pdf_relayout_can_be_turned_off(monkeypatch, tmp_path):
     )
     config = _config(targets=["cwa"], ingest_dir=str(tmp_path))
     config.processing.pdf_relayout = False
-    assert pipeline._prepare_pdf(b"%PDF-x", config) == b"%PDF-x"
+    assert pipeline._relayout_pdf(b"%PDF-x", config) == b"%PDF-x"
 
 
 def test_process_raindrop_pdf_prefers_title_from_the_pdf(monkeypatch, tmp_path):
@@ -149,3 +149,20 @@ def test_process_raindrop_pdf_prefers_title_from_the_pdf(monkeypatch, tmp_path):
     r = Raindrop(id=1, link="https://a.com/p4953-x.pdf", title="P4953 x", type="document")
     assert pipeline.process_raindrop(r, config) is True
     assert delivered["fn"] == "The Dataflow Model Revisited.pdf"
+
+
+def test_process_raindrop_pdf_gets_title_and_author_metadata(monkeypatch, tmp_path):
+    monkeypatch.setattr(pipeline.url_fetcher, "fetch_pdf", lambda url: b"%PDF-original")
+    monkeypatch.setattr(pipeline.pdf_layout, "relayout_two_column", lambda data: None)
+    monkeypatch.setattr(pipeline.pdf_layout, "guess_title", lambda data: "The Dataflow Model Revisited")
+    seen = {}
+    monkeypatch.setattr(
+        pipeline.pdf_layout, "set_metadata",
+        lambda data, title, author: seen.update(title=title, author=author) or b"%PDF-titled",
+    )
+    delivered = _capture_delivery(monkeypatch)
+    config = _config(targets=["cwa"], ingest_dir=str(tmp_path))
+    r = Raindrop(id=1, link="https://www.vldb.org/pvldb/p4953-x.pdf", title="P4953 x", type="document")
+    assert pipeline.process_raindrop(r, config) is True
+    assert seen == {"title": "The Dataflow Model Revisited", "author": "vldb.org"}
+    assert delivered["data"] == b"%PDF-titled"

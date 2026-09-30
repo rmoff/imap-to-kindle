@@ -19,7 +19,13 @@ def _is_self_sent(sender_header: str, own_address: str) -> bool:
     return own_address.lower() in sender_header.lower()
 
 
-def _prepare_pdf(data: bytes, config: Config) -> bytes:
+def _prepare_pdf(data: bytes, config: Config, *, title: str | None, author: str | None) -> bytes:
+    """Title the PDF (e-readers list it by that; papers often leave it blank)
+    and re-lay it for the e-reader if it's two-column."""
+    return pdf_layout.set_metadata(_relayout_pdf(data, config), title, author)
+
+
+def _relayout_pdf(data: bytes, config: Config) -> bytes:
     """Re-lay two-column PDFs for the e-reader; anything else passes through."""
     if not config.processing.pdf_relayout:
         return data
@@ -86,7 +92,11 @@ def process_email(raw: RawEmail, config: Config) -> bool:
         if parsed.pdf_attachment is not None:
             filename, data = parsed.pdf_attachment
             log.info("Forwarding PDF attachment '%s' to Kindle", filename)
-            data = _prepare_pdf(data, config)
+            data = _prepare_pdf(
+                data, config,
+                title=pdf_layout.guess_title(data) or os.path.splitext(filename)[0],
+                author=None,
+            )
         elif parsed.html_body:
             cleaned = cleaner.clean(parsed, config.processing)
             filename, data = epub.generate(cleaned)
@@ -115,8 +125,10 @@ def process_raindrop(raindrop: Raindrop, config: Config) -> bool:
             pdf = url_fetcher.fetch_pdf(raindrop.link)
             if pdf is not None:
                 title = _pdf_title(raindrop, pdf)
+                author = url_fetcher.prettify_domain(raindrop.link)
                 return _deliver_and_notify(
-                    _pdf_filename(raindrop, title), _prepare_pdf(pdf, config),
+                    _pdf_filename(raindrop, title),
+                    _prepare_pdf(pdf, config, title=title, author=author),
                     source="raindrop", title=title or raindrop.link, config=config,
                 )
             log.info("No PDF at %s; trying it as a web page", raindrop.link)

@@ -141,9 +141,14 @@ token = "your-token"
 
 ### PDFs
 
-A bookmark that points at a PDF (Raindrop marks these as documents, or the URL ends in `.pdf`, or it's an `arxiv.org/pdf/…` link) is delivered as a PDF rather than rendered as a web page. It's named after the paper's title, read from the PDF itself.
+A bookmark that points at a PDF (Raindrop marks these as documents, or the URL ends in `.pdf`, or it's an `arxiv.org/pdf/…` link) is delivered as a PDF rather than rendered as a web page. It's named after the paper's title, read from the PDF itself. The same title (and the site as author, if the PDF has none) is written into the PDF's metadata, which is what the Kindle and KOReader list it by.
 
-Two-column PDFs, the usual academic-paper layout, are unreadable at full-page size on a 6–7" screen. So each column is cropped out and restacked onto pages shaped like a Kindle screen (3:4) and as wide as one column. Text shows at roughly print size with no zooming or panning. Full-width parts (title block, wide figures and tables) are kept whole and scaled to fit. Page breaks fall between lines, never through one. The text stays real text rather than an image, so it's still searchable and highlightable.
+Two-column PDFs, the usual academic-paper layout, are unreadable at full-page size on a 6–7" screen. So each column is cropped out and restacked onto pages as wide as one column. They are shaped like a Kindle screen (3:4) less a strip for the reader's status bar, so a whole page shows at once with no scrolling. Text shows at roughly print size with no zooming or panning. The text stays real text rather than an image, so it's still searchable and highlightable. Along the way:
+
+- Full-width parts (title block, author grid, wide figures and tables) are kept whole and scaled to fit.
+- Page breaks fall between lines. They never fall straight after a heading, inside a figure (including its labels and legend), or between a figure and its caption.
+- Footnotes are held back to the end of the paragraph they interrupt, so a sentence that runs across the original page break reads straight through.
+- Page numbers are dropped.
 
 Anything that isn't clearly two-column is sent unchanged. The same applies to PDFs attached to emails. Set `processing.pdf_relayout = false` to always send PDFs as-is.
 

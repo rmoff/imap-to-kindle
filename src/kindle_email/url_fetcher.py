@@ -140,11 +140,11 @@ def _fetch_and_clean(url: str, config: ProcessingConfig) -> CleanedContent | Non
     result = cleaner.clean(fake, config)
     # Prefer a real byline / publication name over the bare host, so the Calibre
     # library shows a meaningful author rather than "www.example.com".
-    result.author = _extract_author(html) or _prettify_domain(url)
+    result.author = _extract_author(html) or prettify_domain(url)
     return result
 
 
-def _prettify_domain(url: str) -> str:
+def prettify_domain(url: str) -> str:
     """A human-ish source label from a URL: the host without a leading 'www.'."""
     netloc = urllib.parse.urlparse(url).netloc
     if netloc.startswith("www."):
