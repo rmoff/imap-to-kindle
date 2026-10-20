@@ -70,18 +70,19 @@ class DiscordConfig:
 
 
 @dataclass
-class CwaConfig:
-    # Folder CWA watches for auto-import (container path). EPUBs are dropped here.
-    ingest_dir: str
-    # Optional unwatched scratch dir on the SAME filesystem as ingest_dir. When set,
-    # the EPUB is written here first and atomically renamed into ingest_dir, so CWA's
-    # watcher never sees a partial file. Falls back to a dotfile temp inside ingest_dir.
+class FolderConfig:
+    # Folder the rendered files are dropped into (container path) — typically a
+    # Syncthing folder or an auto-import folder that something else watches.
+    dir: str
+    # Optional unwatched scratch dir on the SAME filesystem as dir. When set, the file
+    # is written here first and atomically renamed into dir, so a watcher never sees a
+    # partial file. Falls back to a dotfile temp inside dir.
     staging_dir: str | None = None
 
 
 @dataclass
 class DeliveryConfig:
-    # Ordered, de-duplicated subset of {"smtp", "cwa"}. Each produced EPUB is
+    # Ordered, de-duplicated subset of {"smtp", "folder"}. Each produced EPUB is
     # delivered to every listed target; delivery counts as successful only if
     # all targets succeed.
     targets: list[str]
@@ -98,12 +99,15 @@ class Config:
     delivery: DeliveryConfig = field(default_factory=lambda: DeliveryConfig(targets=["smtp"]))
     smtp: SmtpConfig | None = None
     kindle: KindleConfig | None = None
-    cwa: CwaConfig | None = None
+    folder: FolderConfig | None = None
     raindrop: RaindropConfig | None = None
     discord: DiscordConfig | None = None
 
 
-_ALLOWED_TARGETS = ("smtp", "cwa")
+_ALLOWED_TARGETS = ("smtp", "folder")
+# Old names, accepted so existing config.toml files keep working: the "folder" target
+# was called "cwa" (Calibre-Web-Automated) before it became a plain directory write.
+_TARGET_ALIASES = {"cwa": "folder"}
 
 
 def _parse_targets(delivery_section: dict) -> list[str]:
@@ -116,6 +120,7 @@ def _parse_targets(delivery_section: dict) -> list[str]:
     targets: list[str] = []
     for item in raw_targets:
         name = str(item).strip().lower()
+        name = _TARGET_ALIASES.get(name, name)
         if name not in _ALLOWED_TARGETS:
             raise ValueError(
                 f"Unknown delivery target '{name}'. Allowed: {', '.join(_ALLOWED_TARGETS)}."
@@ -160,15 +165,17 @@ def load(path: str | Path = "config.toml") -> Config:
             from_address=kindle_section["from_address"],
         )
 
-    # CWA ingest folder is only needed when delivering into the Calibre library.
-    cwa_config: CwaConfig | None = None
-    if "cwa" in targets:
-        cwa_section = raw.get("cwa")
-        if not cwa_section or not cwa_section.get("ingest_dir"):
-            raise ValueError("Delivery target 'cwa' requires a [cwa] section with ingest_dir.")
-        cwa_config = CwaConfig(
-            ingest_dir=cwa_section["ingest_dir"],
-            staging_dir=cwa_section.get("staging_dir") or None,
+    # The [folder] section (legacy name: [cwa], with ingest_dir for dir) is only needed
+    # when delivering into a directory.
+    folder_config: FolderConfig | None = None
+    if "folder" in targets:
+        folder_section = raw.get("folder") or raw.get("cwa")
+        folder_dir = folder_section and (folder_section.get("dir") or folder_section.get("ingest_dir"))
+        if not folder_dir:
+            raise ValueError("Delivery target 'folder' requires a [folder] section with dir.")
+        folder_config = FolderConfig(
+            dir=folder_dir,
+            staging_dir=folder_section.get("staging_dir") or None,
         )
 
     labels = raw.get("labels", {})
@@ -227,7 +234,7 @@ def load(path: str | Path = "config.toml") -> Config:
         ),
         smtp=smtp_config,
         kindle=kindle_config,
-        cwa=cwa_config,
+        folder=folder_config,
         raindrop=raindrop_config,
         discord=discord_config,
     )

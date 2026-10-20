@@ -2,8 +2,8 @@
 
 Targets:
 - ``smtp`` — Amazon Send-to-Kindle, via :mod:`kindle_email.sender`.
-- ``cwa`` — drop the file into Calibre-Web-Automated's ingest folder, where it is
-  auto-imported into the Calibre library and served to KOReader over OPDS.
+- ``folder`` — write the file into a directory (e.g. a Syncthing folder that pushes it
+  to the Kindle, or an auto-import folder another tool watches).
 
 Both are dispatched by :func:`deliver` according to ``config.delivery.targets``.
 """
@@ -45,7 +45,7 @@ def _atomic_write(data: bytes, temp_dir: str, dest: str) -> None:
 
     Raises OSError (e.g. EXDEV if temp_dir and dest are on different filesystems).
     """
-    fd, tmp = tempfile.mkstemp(dir=temp_dir, prefix=".cwa-", suffix=".part")
+    fd, tmp = tempfile.mkstemp(dir=temp_dir, prefix=".folder-", suffix=".part")
     try:
         with os.fdopen(fd, "wb") as f:
             f.write(data)
@@ -58,23 +58,23 @@ def _atomic_write(data: bytes, temp_dir: str, dest: str) -> None:
         raise
 
 
-def deliver_to_cwa(filename: str, data: bytes, config: Config) -> bool:
-    """Write *data* into CWA's ingest folder atomically.
+def deliver_to_folder(filename: str, data: bytes, config: Config) -> bool:
+    """Write *data* into the configured folder atomically.
 
-    The bytes are written to a temp file first, then ``os.replace``d into the ingest
-    dir, so CWA's folder watcher never observes a half-written EPUB. A configured
+    The bytes are written to a temp file first, then ``os.replace``d into the folder,
+    so a watcher (Syncthing, an importer) never observes a half-written EPUB. A configured
     ``staging_dir`` keeps the temp file out of the watched folder entirely — but only
     if it is on the same filesystem; in Docker, separate bind mounts are separate
     devices, so if the rename would cross a device boundary (EXDEV) we transparently
     fall back to staging inside the ingest dir. Returns True on success, False on error.
     """
-    cwa = config.cwa
-    if cwa is None:
-        log.error("CWA delivery requested but [cwa] config is missing")
+    folder = config.folder
+    if folder is None:
+        log.error("Folder delivery requested but [folder] config is missing")
         return False
 
-    ingest_dir = cwa.ingest_dir
-    staging_dir = cwa.staging_dir or ingest_dir
+    ingest_dir = folder.dir
+    staging_dir = folder.staging_dir or ingest_dir
     try:
         os.makedirs(ingest_dir, exist_ok=True)
         dest = _unique_path(ingest_dir, filename)
@@ -93,10 +93,10 @@ def deliver_to_cwa(filename: str, data: bytes, config: Config) -> bool:
         else:
             _atomic_write(data, ingest_dir, dest)
     except OSError as e:
-        log.error("Failed to write '%s' to CWA ingest dir %s: %s", filename, ingest_dir, e)
+        log.error("Failed to write '%s' to folder %s: %s", filename, ingest_dir, e)
         return False
 
-    log.info("Delivered '%s' to CWA ingest dir %s", os.path.basename(dest), ingest_dir)
+    log.info("Delivered '%s' to folder %s", os.path.basename(dest), ingest_dir)
     return True
 
 
@@ -111,8 +111,8 @@ def deliver(filename: str, data: bytes, config: Config) -> bool:
     for target in config.delivery.targets:
         if target == "smtp":
             results.append(sender.send(filename, data, config))
-        elif target == "cwa":
-            results.append(deliver_to_cwa(filename, data, config))
+        elif target == "folder":
+            results.append(deliver_to_folder(filename, data, config))
         else:
             log.error("Unknown delivery target '%s'; skipping", target)
             results.append(False)
