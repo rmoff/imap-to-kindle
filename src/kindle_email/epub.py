@@ -71,6 +71,8 @@ def generate(content: CleanedContent) -> tuple[str, bytes]:
     book.set_language("en")
     if content.author:
         book.add_author(content.author)
+    if content.date:
+        book.add_metadata("DC", "date", content.date)
 
     # Add CSS
     css = epub.EpubItem(

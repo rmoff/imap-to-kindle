@@ -65,3 +65,12 @@ def test_generate_escapes_xml_in_title():
     content = _make_content(title='Foo & Bar <test> "quoted"')
     filename, data = epub.generate(content)
     assert data[:2] == b"PK"
+
+
+def test_generate_sets_date_metadata():
+    import io
+    import zipfile
+
+    _, data = epub.generate(_make_content(date="2026-10-25"))
+    opf = zipfile.ZipFile(io.BytesIO(data)).read("EPUB/content.opf").decode()
+    assert "<dc:date>2026-10-25</dc:date>" in opf

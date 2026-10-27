@@ -116,3 +116,37 @@ def test_max_images_per_email_enforced():
     config = _default_config(max_images_per_email=3)
     result = cleaner.clean(parsed, config)
     assert len(result.images) <= 3
+
+
+_UNTITLED_EMAIL = (
+    b"From: The Consensus Weekly <weeklynewsletter@theconsensus.dev>\r\n"
+    b"Subject: The Consensus Weekly, October 25, 2026\r\n"
+    b"Date: Sun, 25 Oct 2026 18:30:00 +0000\r\n"
+    b"Content-Type: text/html; charset=utf-8\r\n\r\n"
+    b"<html><head></head><body><div><h3>The Consensus</h3>"
+    b"<p>In a closed loop benchmark, mean latency is just the number of clients "
+    b"divided by throughput. Latency is better measured with an open loop "
+    b"benchmark, but there you have to consider request distribution.</p>"
+    b"</div></body></html>"
+)
+
+
+def test_clean_falls_back_to_subject_when_html_has_no_title():
+    # readability returns "[no-title]" (with brackets) when there's no <title>
+    result = cleaner.clean(parser.parse(_UNTITLED_EMAIL), _default_config())
+
+    assert result.title == "The Consensus Weekly, October 25, 2026"
+    assert result.author == "The Consensus Weekly"
+
+
+def test_clean_carries_the_email_date():
+    result = cleaner.clean(parser.parse(_UNTITLED_EMAIL), _default_config())
+
+    assert result.date == "2026-10-25"
+
+
+def test_clean_ignores_a_malformed_date():
+    raw = _UNTITLED_EMAIL.replace(b"25 Oct 2026 18:30:00", b"25 Oct 9999999999 18:30:00")
+    result = cleaner.clean(parser.parse(raw), _default_config())
+
+    assert result.date == ""

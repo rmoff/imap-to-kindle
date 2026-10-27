@@ -39,6 +39,8 @@ class CleanedContent:
     title: str
     html: str
     author: str = ""
+    # Publication date, YYYY-MM-DD (empty if unknown)
+    date: str = ""
     # Mapping from a local filename (e.g. "img_abc123.jpg") to raw image bytes
     images: dict[str, bytes] = field(default_factory=dict)
     # MIME type for each image file
@@ -56,13 +58,15 @@ def clean(parsed: ParsedEmail, config: ProcessingConfig) -> CleanedContent:
             title=parsed.subject,
             html="<p>No content.</p>",
             author=_sender_display_name(parsed.sender),
+            date=_iso_date(parsed.date),
         )
 
     # Step 1: readability-lxml extraction
     try:
         doc = Document(html)
-        raw_title = doc.title() or ""
-        title = raw_title if raw_title and raw_title.lower() != "no-title" else parsed.subject
+        # readability returns "[no-title]" when the HTML has no <title>
+        raw_title = (doc.title() or "").strip()
+        title = raw_title if raw_title.strip("[]").lower() not in ("", "no-title") else parsed.subject
         html = doc.summary(html_partial=True)
     except Exception as e:
         log.warning("readability extraction failed (%s), using raw HTML", e)
@@ -148,6 +152,7 @@ def clean(parsed: ParsedEmail, config: ProcessingConfig) -> CleanedContent:
         title=title,
         html=str(soup),
         author=_sender_display_name(parsed.sender),
+        date=_iso_date(parsed.date),
         images=images,
         image_types=image_types,
     )
@@ -165,6 +170,16 @@ def _sender_display_name(sender_header: str) -> str:
         local = addr.split("@", 1)[0]
         return local.replace(".", " ").replace("_", " ").strip() or addr
     return ""
+
+
+def _iso_date(date_header: str) -> str:
+    """Turn an RFC 2822 Date header into YYYY-MM-DD, or "" if it won't parse."""
+    from email.utils import parsedate_to_datetime
+
+    try:
+        return parsedate_to_datetime(date_header).date().isoformat()
+    except Exception:  # a bad Date header must never block delivery
+        return ""
 
 
 # ---------------------------------------------------------------------------
