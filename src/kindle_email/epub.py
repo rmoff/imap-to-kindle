@@ -7,6 +7,7 @@ import re
 import uuid
 from dataclasses import dataclass
 
+from bs4 import BeautifulSoup
 from ebooklib import epub
 
 from .cleaner import CleanedContent
@@ -96,6 +97,7 @@ def generate(content: CleanedContent) -> tuple[str, bytes]:
 
     # Rewrite image src paths to match their location in the EPUB
     html = _rewrite_image_paths(content.html, set(content.images.keys()))
+    html, headings = _anchor_headings(html)
 
     # Wrap in a proper XHTML document
     chapter_html = f"""<?xml version='1.0' encoding='utf-8'?>
@@ -121,8 +123,10 @@ def generate(content: CleanedContent) -> tuple[str, bytes]:
     book.add_item(document)
 
     # Open directly to the document; the nav is included for navigation but
-    # is not the landing page.
-    book.toc = [epub.Link("document.xhtml", content.title, "document")]
+    # is not the landing page. Headings get a flat entry each after the title.
+    book.toc = [epub.Link("document.xhtml", content.title, "document")] + [
+        epub.Link(f"document.xhtml#{anchor}", text, anchor) for anchor, text in headings
+    ]
     book.spine = [document]
     book.add_item(epub.EpubNcx())
     book.add_item(epub.EpubNav())
@@ -133,6 +137,33 @@ def generate(content: CleanedContent) -> tuple[str, bytes]:
 
     filename = safe_filename(content.title) + ".epub"
     return filename, epub_bytes
+
+
+def _anchor_headings(html: str) -> tuple[str, list[tuple[str, str]]]:
+    """Give each heading an id and return (html, [(id, text)]) for the TOC.
+
+    A multi-article book (an <h1> per article) lists the articles only;
+    otherwise every h2-h4 is listed, flat, since newsletters use heading
+    levels for styling rather than nesting (Benedict's column is an h3, the
+    news items after it h4s). Fewer than two headings: no entries."""
+    soup = BeautifulSoup(html, "html.parser")
+    articles = [h for h in soup.find_all("h1") if h.get_text(strip=True)]
+    found = articles if len(articles) >= 2 else [
+        h for h in soup.find_all(["h2", "h3", "h4"]) if h.get_text(strip=True)
+    ]
+    if len(found) < 2:
+        return html, []
+    taken = {tag["id"] for tag in soup.find_all(id=True)}
+    headings = []
+    for n, h in enumerate(found, 1):
+        if not h.get("id"):
+            anchor = f"toc-{n}"
+            while anchor in taken:
+                anchor += "x"
+            taken.add(anchor)
+            h["id"] = anchor
+        headings.append((h["id"], " ".join(h.get_text(" ", strip=True).split())))
+    return str(soup), headings
 
 
 def _rewrite_image_paths(html: str, image_filenames: set[str]) -> str:

@@ -74,3 +74,54 @@ def test_generate_sets_date_metadata():
     _, data = epub.generate(_make_content(date="2026-10-25"))
     opf = zipfile.ZipFile(io.BytesIO(data)).read("EPUB/content.opf").decode()
     assert "<dc:date>2026-10-25</dc:date>" in opf
+
+
+def _toc_and_doc(data: bytes) -> tuple[str, str]:
+    import io
+    import zipfile
+
+    z = zipfile.ZipFile(io.BytesIO(data))
+    return z.read("EPUB/toc.ncx").decode(), z.read("EPUB/document.xhtml").decode()
+
+
+def test_toc_lists_each_heading():
+    # Benedict's newsletter: one h3 column, then h4 news items
+    html = (
+        "<h3>Black October</h3><p>a</p>"
+        "<h4>Agent economics</h4><p>b</p>"
+        "<h4>Apple’s shadow &amp; regulation</h4><p>c</p>"
+    )
+    toc, doc = _toc_and_doc(epub.generate(_make_content(html=html))[1])
+    for text in ("Test Newsletter", "Black October", "Agent economics", "Apple’s shadow &amp; regulation"):
+        assert f"<text>{text}</text>" in toc
+    # Flat: the h4 news items are not children of the h3 column
+    assert toc.count("<navPoint") == 4 and "</navPoint></navPoint>" not in toc.replace("\n", "").replace(" ", "")
+    # Each entry points at an anchor that exists in the document
+    import re
+    for anchor in re.findall(r'src="document\.xhtml#([^"]+)"', toc):
+        assert f'id="{anchor}"' in doc
+
+
+def test_toc_keeps_existing_heading_id():
+    html = '<h2 id="intro">Intro</h2><p>a</p><h2>Next</h2>'
+    toc, doc = _toc_and_doc(epub.generate(_make_content(html=html))[1])
+    assert 'src="document.xhtml#intro"' in toc
+    assert doc.count('id="intro"') == 1
+
+
+def test_toc_single_entry_without_headings():
+    toc, _ = _toc_and_doc(epub.generate(_make_content(html="<h2>Only one</h2><p>x</p>"))[1])
+    assert toc.count("<navPoint") == 1
+
+
+def test_toc_multi_article_book_lists_articles_only():
+    html = "<h1>First</h1><h2>Sub a</h2><p>x</p><h1>Second</h1><h2>Sub b</h2>"
+    toc, _ = _toc_and_doc(epub.generate(_make_content(html=html))[1])
+    assert "<text>First</text>" in toc and "<text>Second</text>" in toc
+    assert "Sub a" not in toc
+
+
+def test_toc_single_h1_still_lists_sections():
+    html = "<h1>Article</h1><h2>First</h2><p>x</p><h2>Second</h2>"
+    toc, _ = _toc_and_doc(epub.generate(_make_content(html=html))[1])
+    assert "<text>First</text>" in toc and "<text>Second</text>" in toc
