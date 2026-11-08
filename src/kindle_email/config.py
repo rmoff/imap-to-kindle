@@ -65,8 +65,9 @@ class RaindropConfig:
 
 
 @dataclass
-class DiscordConfig:
-    webhook_url: str
+class TelegramConfig:
+    token: str
+    chat_id: str
 
 
 @dataclass
@@ -101,7 +102,7 @@ class Config:
     kindle: KindleConfig | None = None
     folder: FolderConfig | None = None
     raindrop: RaindropConfig | None = None
-    discord: DiscordConfig | None = None
+    telegram: TelegramConfig | None = None
 
 
 _ALLOWED_TARGETS = ("smtp", "folder")
@@ -182,14 +183,12 @@ def load(path: str | Path = "config.toml") -> Config:
     schedule = raw.get("schedule", {})
     processing = raw.get("processing", {})
     raindrop_section = raw.get("raindrop")
-    discord_section = raw.get("discord")
-
-    discord_config: DiscordConfig | None = None
-    discord_webhook = os.environ.get("KINDLE_EMAIL_DISCORD_WEBHOOK") or (
-        (discord_section or {}).get("webhook_url", "")
-    )
-    if discord_webhook:
-        discord_config = DiscordConfig(webhook_url=discord_webhook)
+    # Notifications go to Telegram; secrets come from the environment only (.env beside the live compose file).
+    telegram_config: TelegramConfig | None = None
+    tg_token = os.environ.get("KINDLE_EMAIL_TELEGRAM_TOKEN", "").strip()
+    tg_chat = os.environ.get("KINDLE_EMAIL_TELEGRAM_CHAT_ID", "").strip()
+    if tg_token and tg_chat:
+        telegram_config = TelegramConfig(token=tg_token, chat_id=tg_chat)
 
     raindrop_config: RaindropConfig | None = None
     if raindrop_section and raindrop_section.get("enabled", False):
@@ -236,5 +235,5 @@ def load(path: str | Path = "config.toml") -> Config:
         kindle=kindle_config,
         folder=folder_config,
         raindrop=raindrop_config,
-        discord=discord_config,
+        telegram=telegram_config,
     )

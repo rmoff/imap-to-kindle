@@ -63,10 +63,10 @@ def _deliver_and_notify(filename: str, data: bytes, *, source: str, title: str, 
     success = delivery.deliver(filename, data, config)
     if success:
         log.info("Successfully delivered '%s'", filename)
-        notifier.notify(config.discord, success=True, source=source, title=title)
+        notifier.notify(config.telegram, success=True, source=source, title=title)
     else:
         log.error("Failed to deliver '%s'", filename)
-        notifier.notify(config.discord, success=False, source=source, title=title, detail="Delivery failed")
+        notifier.notify(config.telegram, success=False, source=source, title=title, detail="Delivery failed")
     return success
 
 
@@ -102,14 +102,14 @@ def process_email(raw: RawEmail, config: Config) -> bool:
             filename, data = epub.generate(cleaned)
         else:
             log.warning("No content extracted from email, skipping")
-            notifier.notify(config.discord, success=False, source="email", title=title, detail="No content extracted")
+            notifier.notify(config.telegram, success=False, source="email", title=title, detail="No content extracted")
             return False
 
         return _deliver_and_notify(filename, data, source="email", title=title, config=config)
 
     except Exception as e:
         log.exception("Unexpected error processing email: %s", e)
-        notifier.notify(config.discord, success=False, source="email", title=title, detail=str(e))
+        notifier.notify(config.telegram, success=False, source="email", title=title, detail=str(e))
         return False
 
 
@@ -136,7 +136,7 @@ def process_raindrop(raindrop: Raindrop, config: Config) -> bool:
         if cleaned is None:
             log.error("Could not render raindrop %d (%s)", raindrop.id, raindrop.link)
             notifier.notify(
-                config.discord, success=False, source="raindrop", title=label,
+                config.telegram, success=False, source="raindrop", title=label,
                 detail="Fetch/render failed (see logs)",
             )
             return False
@@ -146,5 +146,5 @@ def process_raindrop(raindrop: Raindrop, config: Config) -> bool:
         )
     except Exception as e:
         log.exception("Unexpected error processing raindrop %d: %s", raindrop.id, e)
-        notifier.notify(config.discord, success=False, source="raindrop", title=label, detail=str(e))
+        notifier.notify(config.telegram, success=False, source="raindrop", title=label, detail=str(e))
         return False

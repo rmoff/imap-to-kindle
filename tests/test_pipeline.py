@@ -24,7 +24,7 @@ def _config(*, targets, ingest_dir) -> Config:
         processing=ProcessingConfig(500, 20, False, 10),
         delivery=DeliveryConfig(targets=targets),
         folder=FolderConfig(dir=ingest_dir),
-        # discord left None → notifier no-ops
+        # telegram left None → notifier no-ops
     )
 
 
