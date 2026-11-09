@@ -18,7 +18,7 @@ def test_build_message_failure_includes_detail():
     assert "X" in msg
 
 
-def test_notify_posts_silently_to_telegram(monkeypatch):
+def test_success_posts_silently_to_telegram(monkeypatch):
     sent = {}
 
     class Resp:
@@ -50,3 +50,16 @@ def test_send_failure_does_not_log_the_token(monkeypatch, caplog):
     monkeypatch.setattr(notifier.urllib.request, "urlopen", boom)
     notifier.notify(notifier.TelegramConfig(token="SECRET123", chat_id="42"), success=False, source="email", title="Book")
     assert "SECRET123" not in caplog.text
+
+
+def test_failure_makes_a_sound(monkeypatch):
+    sent = {}
+
+    class Resp:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def read(self): return b'{"ok":true}'
+
+    monkeypatch.setattr(notifier.urllib.request, "urlopen", lambda req, timeout: (sent.update(body=__import__("json").loads(req.data)), Resp())[1])
+    notifier.notify(notifier.TelegramConfig(token="T", chat_id="42"), success=False, source="email", title="Book", detail="boom")
+    assert sent["body"]["disable_notification"] is False

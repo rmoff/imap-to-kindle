@@ -1,7 +1,7 @@
 """Post success/failure notifications to Telegram (the "Homelab alerts" bot).
 
-Every message is sent silently (``disable_notification``): deliveries are information, not alarms.
-Replaced the Discord webhook on 8 Nov 2026.
+Successful deliveries are sent silently (``disable_notification``): information, not alarms. Failures make a sound
+(RM, 9 Nov 2026). Replaced the Discord webhook on 8 Nov 2026.
 """
 
 from __future__ import annotations
@@ -18,11 +18,11 @@ log = logging.getLogger(__name__)
 _TIMEOUT = 10
 
 
-def _post(telegram: TelegramConfig, text: str) -> None:
+def _post(telegram: TelegramConfig, text: str, *, silent: bool) -> None:
     body = json.dumps({
         "chat_id": telegram.chat_id,
         "text": text[:4000],
-        "disable_notification": True,
+        "disable_notification": silent,
         "disable_web_page_preview": True,
     }).encode("utf-8")
     req = urllib.request.Request(
@@ -54,4 +54,4 @@ def notify(telegram: TelegramConfig | None, *, success: bool, source: str, title
     """Send a notification. Silently no-ops if Telegram is not configured."""
     if telegram is None or not telegram.token or not telegram.chat_id:
         return
-    _post(telegram, _build_message(success=success, source=source, title=title, detail=detail))
+    _post(telegram, _build_message(success=success, source=source, title=title, detail=detail), silent=success)
